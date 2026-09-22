@@ -6,7 +6,11 @@
  *
  * Usage: npm run seed
  */
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
+// Next.js reads .env.local; plain `dotenv/config` only reads .env, so load
+// both here (first file wins) or the script sees no keys at all.
+loadEnv({ path: [".env.local", ".env"] });
+
 import { db, schema } from "../src/lib/db";
 import { eq, and } from "drizzle-orm";
 import { processMeeting } from "../src/server/meetings";

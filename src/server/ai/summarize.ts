@@ -106,7 +106,8 @@ export async function generateSummary(meetingId: string, template: TemplateId): 
       responseMimeType: "application/json",
       responseSchema: SUMMARY_SCHEMA,
       temperature: 0.3,
-      maxOutputTokens: 2000,
+      maxOutputTokens: 4096,
+      thinkingConfig: { thinkingBudget: 0 },
       abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
     },
   });
@@ -150,7 +151,8 @@ export async function generateActionItems(meetingId: string) {
       responseMimeType: "application/json",
       responseSchema: ACTION_ITEMS_SCHEMA,
       temperature: 0.2,
-      maxOutputTokens: 1200,
+      maxOutputTokens: 3000,
+      thinkingConfig: { thinkingBudget: 0 },
       abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
     },
   });

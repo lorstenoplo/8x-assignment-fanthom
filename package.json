@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "tsx scripts/seed.ts",
+    "seed": "tsx --tsconfig tsconfig.scripts.json scripts/seed.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
@@ -40,6 +40,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "server-only": "^0.0.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

@@ -163,7 +163,8 @@ Respond with strict JSON: {"safe": boolean, "reason": string}. reason is a short
           required: ["safe", "reason"],
         },
         temperature: 0,
-        maxOutputTokens: 150,
+        maxOutputTokens: 300,
+        thinkingConfig: { thinkingBudget: 0 },
         abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
       },
     });

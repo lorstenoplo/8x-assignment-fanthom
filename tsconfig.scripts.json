@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./scripts/stubs/server-only.js"]
+    }
+  }
+}

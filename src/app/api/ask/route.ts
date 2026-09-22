@@ -115,7 +115,8 @@ export async function POST(req: Request) {
       ],
       config: {
         temperature: 0.3,
-        maxOutputTokens: 700,
+        maxOutputTokens: 1500,
+        thinkingConfig: { thinkingBudget: 0 },
         responseMimeType: "application/json",
         responseSchema: ANSWER_SCHEMA,
         abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
