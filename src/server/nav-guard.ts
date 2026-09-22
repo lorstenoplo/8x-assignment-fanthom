@@ -2,19 +2,35 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
-import { getViewingWorkspaceId } from "@/server/session";
+import { getWorkspaceId, getViewingWorkspaceId } from "@/server/session";
 
 /**
- * Loads the workspace to render the shell with, and sends a first-time,
- * signed-in-as-yourself visitor to onboarding. A visitor browsing the seeded
- * demo workspace (no cookie of their own) is never redirected — the demo is
- * always onboarded, and that's the identity check: only *your own*,
- * not-yet-onboarded workspace forces the walkthrough.
+ * For read-only pages (dashboard, search, ask, alerts): always renders,
+ * never redirects. A visitor's own workspace cookie is set by `proxy.ts` on
+ * their very first request, before any DB row exists for it — so "I have a
+ * cookie" does NOT mean "I have a workspace yet". This resolves to that row
+ * if it exists, otherwise falls back to the seeded demo, exactly like
+ * `getViewingWorkspaceId`, just also returning the full row for the shell.
  */
-export async function requireOnboardedWorkspace() {
+export async function loadViewingWorkspace() {
   const workspaceId = await getViewingWorkspaceId();
   const workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, workspaceId) });
-  if (!workspace) redirect("/onboarding");
-  if (!workspace.isDemo && !workspace.onboardedAt) redirect("/onboarding");
+  if (!workspace) {
+    throw new Error(`Viewing workspace ${workspaceId} does not exist — demo data may not be seeded.`);
+  }
+  return workspace;
+}
+
+/**
+ * For the one write path that should be gated on onboarding: starting a real
+ * test meeting. Only a visitor whose *own* workspace row exists but hasn't
+ * finished the walkthrough is sent there — someone merely browsing the demo
+ * is never redirected just for having a cookie.
+ */
+export async function requireOwnOnboardedWorkspace(next = "/room") {
+  const ownId = await getWorkspaceId();
+  if (!ownId) redirect(`/onboarding?next=${encodeURIComponent(next)}`);
+  const workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, ownId) });
+  if (!workspace || !workspace.onboardedAt) redirect(`/onboarding?next=${encodeURIComponent(next)}`);
   return workspace;
 }

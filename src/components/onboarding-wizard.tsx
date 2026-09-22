@@ -21,7 +21,7 @@ type Prefs = {
 
 const STEPS = ["Who's using it", "Recording", "Sharing", "Guardrails"] as const;
 
-export function OnboardingWizard() {
+export function OnboardingWizard({ nextPath = "/calls" }: { nextPath?: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -47,7 +47,7 @@ export function OnboardingWizard() {
         body: JSON.stringify(prefs),
       });
       if (!res.ok) throw new Error(await res.text());
-      router.push("/calls");
+      router.push(nextPath);
       router.refresh();
     } catch {
       toast.error("Couldn't save your preferences — check the server is configured and try again.");

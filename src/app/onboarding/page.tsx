@@ -1,9 +1,14 @@
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 
-export default function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <OnboardingWizard />
+      <OnboardingWizard nextPath={next && next.startsWith("/") ? next : "/calls"} />
     </div>
   );
 }
