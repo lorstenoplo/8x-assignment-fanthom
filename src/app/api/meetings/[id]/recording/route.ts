@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { requireOwnMeeting } from "@/server/meeting-guard";
+
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // ~500MB, generous for an hour-long call
 
 /**
  * Receives the MediaRecorder blob captured client-side in the room and
@@ -11,8 +14,13 @@ import { eq } from "drizzle-orm";
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const meeting = await db.query.meetings.findFirst({ where: eq(schema.meetings.id, id) });
-  if (!meeting) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  const guard = await requireOwnMeeting(id);
+  if ("error" in guard) return guard.error;
+
+  const declaredLength = Number(req.headers.get("content-length") || 0);
+  if (declaredLength > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: "too_large" }, { status: 413 });
+  }
 
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     await db
@@ -26,6 +34,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const buf = await req.arrayBuffer();
   if (buf.byteLength === 0) {
     return NextResponse.json({ stored: false, reason: "empty_upload" });
+  }
+  if (buf.byteLength > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: "too_large" }, { status: 413 });
   }
 
   try {

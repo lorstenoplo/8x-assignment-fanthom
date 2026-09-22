@@ -7,6 +7,7 @@ import { EMBEDDING_DIMENSIONS } from "@/lib/db/schema";
  * single failure from discarding an entire meeting's worth of chunks.
  */
 const BATCH_SIZE = 32;
+const TIMEOUT_MS = 15_000;
 
 export async function embedTexts(
   texts: string[],
@@ -19,7 +20,7 @@ export async function embedTexts(
     const res = await gemini().models.embedContent({
       model: MODELS.embedding,
       contents: batch,
-      config: { taskType, outputDimensionality: EMBEDDING_DIMENSIONS },
+      config: { taskType, outputDimensionality: EMBEDDING_DIMENSIONS, abortSignal: AbortSignal.timeout(TIMEOUT_MS) },
     });
     const embeddings = res.embeddings ?? [];
     if (embeddings.length !== batch.length) {

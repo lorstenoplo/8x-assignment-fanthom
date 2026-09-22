@@ -5,6 +5,8 @@ import { gemini, MODELS } from "./client";
 import type { TranscriptSegment, SummaryContent } from "@/lib/db/schema";
 import { TEMPLATES, type TemplateId } from "./templates";
 
+const GEN_TIMEOUT_MS = 30_000;
+
 const SUMMARY_SCHEMA = {
   type: "object",
   properties: {
@@ -104,6 +106,8 @@ export async function generateSummary(meetingId: string, template: TemplateId): 
       responseMimeType: "application/json",
       responseSchema: SUMMARY_SCHEMA,
       temperature: 0.3,
+      maxOutputTokens: 2000,
+      abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
     },
   });
 
@@ -146,6 +150,8 @@ export async function generateActionItems(meetingId: string) {
       responseMimeType: "application/json",
       responseSchema: ACTION_ITEMS_SCHEMA,
       temperature: 0.2,
+      maxOutputTokens: 1200,
+      abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
     },
   });
 

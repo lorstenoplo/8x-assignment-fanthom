@@ -300,10 +300,19 @@ export const askMessages = pgTable(
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations").$type<Citation[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Generative-UI blocks (meeting cards, action-item lists, stats) rendered under the markdown answer. */
+    blocks: jsonb("blocks").$type<AskUiBlock[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Set when the scope/safety guardrail rejected the message before generation ran. */
+    guardBlocked: boolean("guard_blocked").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("ask_messages_thread_idx").on(t.threadId, t.createdAt)],
 );
+
+export type AskUiBlock =
+  | { type: "meeting_card"; meetingId: string; title: string; dateLabel: string; startMs?: number }
+  | { type: "action_items"; items: { text: string; assignee?: string; meetingId?: string }[] }
+  | { type: "stat"; label: string; value: string };
 
 export type Citation = {
   meetingId: string;

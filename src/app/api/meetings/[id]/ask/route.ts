@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
-import { eq, isNull, and } from "drizzle-orm";
+import { isNull, and, desc, eq } from "drizzle-orm";
 import { answerInCall } from "@/server/ai/agent-answer";
 import { AiConfigError } from "@/server/ai/client";
+import { requireOwnMeeting } from "@/server/meeting-guard";
 
 const AskBody = z.object({
-  question: z.string().min(1),
-  atMs: z.number().int().nonnegative().default(0),
+  question: z.string().min(1).max(1000),
+  atMs: z.number().int().nonnegative().max(24 * 60 * 60 * 1000).default(0),
 });
+
+/** Blocks rapid-fire repeats of the wake word (retries, echo, a stuck client) from stacking up paid model calls. */
+const MIN_GAP_MS = 3_000;
 
 /**
  * The notetaker's answer path, hit only when the room's wake-word detector
@@ -19,10 +23,20 @@ const AskBody = z.object({
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const guard = await requireOwnMeeting(id);
+  if ("error" in guard) return guard.error;
+  const { meeting } = guard;
+
   const body = AskBody.parse(await req.json());
 
-  const meeting = await db.query.meetings.findFirst({ where: eq(schema.meetings.id, id) });
-  if (!meeting) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  const [lastAnswer] = await db.query.inCallAnswers.findMany({
+    where: eq(schema.inCallAnswers.meetingId, id),
+    orderBy: [desc(schema.inCallAnswers.createdAt)],
+    limit: 1,
+  });
+  if (lastAnswer && Date.now() - lastAnswer.createdAt.getTime() < MIN_GAP_MS) {
+    return NextResponse.json({ error: "too_soon" }, { status: 429 });
+  }
 
   const stillPresent = await db.query.participants.findMany({
     where: and(eq(schema.participants.meetingId, id), isNull(schema.participants.leftAt)),

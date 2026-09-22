@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { and, eq } from "drizzle-orm";
+import { requireOwnMeeting } from "@/server/meeting-guard";
 
 const JoinBody = z.object({
-  name: z.string().min(1),
-  email: z.string().email().optional(),
+  name: z.string().min(1).max(80),
+  email: z.string().email().max(200).optional(),
   role: z.enum(["host", "guest", "agent"]).default("guest"),
 });
 
@@ -23,11 +24,11 @@ function isExternal(email: string | undefined, internalDomains: string[]) {
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = JoinBody.parse(await req.json());
+  const guard = await requireOwnMeeting(id);
+  if ("error" in guard) return guard.error;
 
-  const meeting = await db.query.meetings.findFirst({ where: eq(schema.meetings.id, id) });
-  if (!meeting) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  const workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, meeting.workspaceId) });
+  const body = JoinBody.parse(await req.json());
+  const workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, guard.meeting.workspaceId) });
 
   const external = body.role === "agent" ? false : isExternal(body.email, workspace?.internalDomains ?? []);
 
@@ -49,10 +50,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   return NextResponse.json({ participants: list });
 }
 
-const LeaveBody = z.object({ participantId: z.string(), talkTimeSec: z.number().int().nonnegative().optional() });
+const LeaveBody = z.object({ participantId: z.string().max(100), talkTimeSec: z.number().int().nonnegative().max(24 * 3600).optional() });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const guard = await requireOwnMeeting(id);
+  if ("error" in guard) return guard.error;
+
   const body = LeaveBody.parse(await req.json());
   await db
     .update(schema.participants)

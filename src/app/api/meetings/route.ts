@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { ensureWorkspace } from "@/server/session";
 import { eq } from "drizzle-orm";
+import { rateLimit, clientKey } from "@/server/rate-limit";
 
 const CreateBody = z.object({
   title: z.string().min(1).max(200).default("Untitled meeting"),
@@ -11,6 +12,10 @@ const CreateBody = z.object({
 /** Starts a meeting: creates the row and the host participant, room-side. */
 export async function POST(req: Request) {
   const workspaceId = await ensureWorkspace();
+
+  const { allowed } = rateLimit(`create-meeting:${clientKey(req, workspaceId)}`, 10, 10 * 60 * 1000);
+  if (!allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+
   const body = CreateBody.parse(await req.json().catch(() => ({})));
 
   const workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, workspaceId) });

@@ -2,20 +2,22 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { requireOwnMeeting } from "@/server/meeting-guard";
 
 const HighlightBody = z.object({
-  label: z.string().default("Highlight"),
-  note: z.string().optional(),
-  startMs: z.number().int().nonnegative(),
-  endMs: z.number().int().nonnegative(),
+  label: z.string().max(120).default("Highlight"),
+  note: z.string().max(2000).optional(),
+  startMs: z.number().int().nonnegative().max(24 * 60 * 60 * 1000),
+  endMs: z.number().int().nonnegative().max(24 * 60 * 60 * 1000),
   createdDuringCall: z.boolean().default(false),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const guard = await requireOwnMeeting(id);
+  if ("error" in guard) return guard.error;
+
   const body = HighlightBody.parse(await req.json());
-  const meeting = await db.query.meetings.findFirst({ where: eq(schema.meetings.id, id) });
-  if (!meeting) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const [highlight] = await db
     .insert(schema.highlights)

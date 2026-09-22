@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db, schema } from "@/lib/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { processMeeting } from "@/server/meetings";
+import { requireOwnMeeting } from "@/server/meeting-guard";
 
 /**
  * Ends the meeting, closes out anyone still marked present, and kicks off
@@ -11,8 +12,9 @@ import { processMeeting } from "@/server/meetings";
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const meeting = await db.query.meetings.findFirst({ where: eq(schema.meetings.id, id) });
-  if (!meeting) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  const guard = await requireOwnMeeting(id);
+  if ("error" in guard) return guard.error;
+  const { meeting } = guard;
   if (meeting.status !== "live") return NextResponse.json({ meeting });
 
   const now = new Date();

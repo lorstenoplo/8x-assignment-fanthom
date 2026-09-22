@@ -96,3 +96,28 @@ body {
   to { opacity: 1; transform: none; }
 }
 .animate-fade-up { animation: fade-up 0.18s ease-out both; }
+
+/* Minimal markdown styling for Ask responses (no typography plugin). */
+.prose-ask :where(p) { margin: 0 0 0.5em; }
+.prose-ask :where(p:last-child) { margin-bottom: 0; }
+.prose-ask :where(ul, ol) { margin: 0.35em 0; padding-left: 1.25em; }
+.prose-ask :where(li) { margin: 0.15em 0; }
+.prose-ask :where(strong) { font-weight: 600; }
+.prose-ask :where(code) {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+}
+.prose-ask :where(pre) {
+  background: hsl(var(--muted));
+  border-radius: var(--radius-md);
+  padding: 0.6em 0.75em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.prose-ask :where(pre code) { background: none; padding: 0; }
+.prose-ask :where(a) { color: hsl(var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
+.prose-ask :where(h1, h2, h3) { font-weight: 600; margin: 0.6em 0 0.3em; font-size: 1em; }
+.prose-ask :where(table) { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
+.prose-ask :where(th, td) { border: 1px solid hsl(var(--border)); padding: 0.3em 0.5em; text-align: left; }

@@ -65,8 +65,15 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
     [],
   );
 
+  const askingRef = useRef(false);
+
   const askNotetaker = useCallback(
     async (mid: string, question: string) => {
+      // Guards against the wake-word detector firing again (e.g. the agent's
+      // own TTS or a second utterance) while a previous question is still
+      // being answered — one in flight at a time.
+      if (askingRef.current) return;
+      askingRef.current = true;
       setAsking(true);
       setNotetakerNote(null);
       try {
@@ -74,6 +81,7 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question, atMs: Date.now() - callStartRef.current }),
+          signal: AbortSignal.timeout(20_000),
         });
         if (!res.ok) throw new Error("ask_failed");
         const data = (await res.json()) as { answer: string; blocked: boolean };
@@ -94,6 +102,7 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       } catch {
         toast.error("The notetaker couldn't answer that — check the Gemini API key is configured.");
       } finally {
+        askingRef.current = false;
         setAsking(false);
       }
     },
