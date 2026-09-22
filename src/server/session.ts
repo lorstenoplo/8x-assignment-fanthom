@@ -1,56 +1,25 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
-
-const COOKIE_NAME = "fathom_ws";
-
-function secret() {
-  const s = process.env.SESSION_SECRET;
-  if (!s) {
-    // Dev fallback so the app runs before .env.local is filled in. Never used
-    // to protect anything real: a workspace created under this secret is only
-    // ever readable on this same unconfigured machine.
-    return "insecure-dev-secret-set-SESSION_SECRET-in-.env.local";
-  }
-  return s;
-}
-
-function sign(id: string) {
-  const mac = createHmac("sha256", secret()).update(id).digest("base64url");
-  return `${id}.${mac}`;
-}
-
-function verify(token: string): string | null {
-  const dot = token.lastIndexOf(".");
-  if (dot < 0) return null;
-  const id = token.slice(0, dot);
-  const mac = token.slice(dot + 1);
-  const expected = createHmac("sha256", secret()).update(id).digest("base64url");
-  const a = Buffer.from(mac);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return id;
-}
+import { WORKSPACE_COOKIE, signWorkspaceId, verifyWorkspaceToken } from "@/server/cookie-sign";
 
 /**
- * Reads the workspace cookie and confirms that row still exists. Does not
- * create one — call `ensureWorkspace` from a Server Action / Route Handler
- * (cookie writes are not allowed from plain Server Components).
+ * Reads the workspace cookie (signed by `proxy.ts` for every new visitor, or
+ * by `setWorkspaceCookie` below) and confirms the signature. Does not create
+ * a row — call `ensureWorkspace` from a Server Action / Route Handler for
+ * that (cookie writes are not allowed from plain Server Components).
  */
 export async function getWorkspaceId(): Promise<string | null> {
   const jar = await cookies();
-  const raw = jar.get(COOKIE_NAME)?.value;
+  const raw = jar.get(WORKSPACE_COOKIE)?.value;
   if (!raw) return null;
-  const id = verify(raw);
-  if (!id) return null;
-  return id;
+  return verifyWorkspaceToken(raw);
 }
 
 export async function setWorkspaceCookie(id: string) {
   const jar = await cookies();
-  jar.set(COOKIE_NAME, sign(id), {
+  jar.set(WORKSPACE_COOKIE, signWorkspaceId(id), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -64,12 +33,23 @@ export async function setWorkspaceCookie(id: string) {
  * (starting a meeting, changing a preference). Read-only pages that should
  * work for a signed-out visitor use `getViewingWorkspaceId` instead, which
  * falls back to the seeded demo workspace rather than creating a new one.
+ *
+ * `proxy.ts` signs a cookie with a fresh id for every new visitor before any
+ * DB row exists (an edge-cheap operation with no database round trip). This
+ * is where that id turns into an actual row — inserted *with* that same id,
+ * so the cookie a visitor already has keeps pointing at the workspace this
+ * call creates, instead of silently swapping to a new one.
  */
 export async function ensureWorkspace(): Promise<string> {
   const existing = await getWorkspaceId();
   if (existing) {
     const row = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, existing) });
     if (row) return row.id;
+    const [created] = await db
+      .insert(schema.workspaces)
+      .values({ id: existing })
+      .returning({ id: schema.workspaces.id });
+    return created.id;
   }
   const [created] = await db.insert(schema.workspaces).values({}).returning({ id: schema.workspaces.id });
   await setWorkspaceCookie(created.id);

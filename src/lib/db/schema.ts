@@ -10,7 +10,7 @@ import {
   uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 /** gemini-embedding-001 is asked for 768 dims: inside pgvector's HNSW limit. */
 export const EMBEDDING_DIMENSIONS = 768;
@@ -348,3 +348,59 @@ export type ShareLink = typeof shareLinks.$inferSelect;
 export type Alert = typeof alerts.$inferSelect;
 export type AlertHit = typeof alertHits.$inferSelect;
 export type Chunk = typeof chunks.$inferSelect;
+
+// ── relations, for db.query.*.findMany({ with: {...} }) ──────────────────────
+
+export const meetingsRelations = relations(meetings, ({ many }) => ({
+  participants: many(participants),
+  transcriptSegments: many(transcriptSegments),
+  actionItems: many(actionItems),
+  highlights: many(highlights),
+  summaries: many(summaries),
+  shareLinks: many(shareLinks),
+  chunks: many(chunks),
+}));
+
+export const participantsRelations = relations(participants, ({ one }) => ({
+  meeting: one(meetings, { fields: [participants.meetingId], references: [meetings.id] }),
+}));
+
+export const transcriptSegmentsRelations = relations(transcriptSegments, ({ one }) => ({
+  meeting: one(meetings, { fields: [transcriptSegments.meetingId], references: [meetings.id] }),
+}));
+
+export const actionItemsRelations = relations(actionItems, ({ one }) => ({
+  meeting: one(meetings, { fields: [actionItems.meetingId], references: [meetings.id] }),
+}));
+
+export const highlightsRelations = relations(highlights, ({ one }) => ({
+  meeting: one(meetings, { fields: [highlights.meetingId], references: [meetings.id] }),
+}));
+
+export const summariesRelations = relations(summaries, ({ one }) => ({
+  meeting: one(meetings, { fields: [summaries.meetingId], references: [meetings.id] }),
+}));
+
+export const shareLinksRelations = relations(shareLinks, ({ one }) => ({
+  meeting: one(meetings, { fields: [shareLinks.meetingId], references: [meetings.id] }),
+}));
+
+export const chunksRelations = relations(chunks, ({ one }) => ({
+  meeting: one(meetings, { fields: [chunks.meetingId], references: [meetings.id] }),
+  workspace: one(workspaces, { fields: [chunks.workspaceId], references: [workspaces.id] }),
+}));
+
+export const workspacesRelations = relations(workspaces, ({ many }) => ({
+  meetings: many(meetings),
+  alerts: many(alerts),
+}));
+
+export const alertsRelations = relations(alerts, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [alerts.workspaceId], references: [workspaces.id] }),
+  hits: many(alertHits),
+}));
+
+export const alertHitsRelations = relations(alertHits, ({ one }) => ({
+  alert: one(alerts, { fields: [alertHits.alertId], references: [alerts.id] }),
+  meeting: one(meetings, { fields: [alertHits.meetingId], references: [meetings.id] }),
+}));
