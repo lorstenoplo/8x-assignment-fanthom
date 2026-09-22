@@ -8,7 +8,7 @@ const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // ~500MB, generous for an hour-long
 
 /**
  * Receives the MediaRecorder blob captured client-side in the room and
- * uploads it to Supabase Storage. If storage isn't configured, the meeting
+ * uploads it to Vercel Blob. If storage isn't configured, the meeting
  * still saves — recording is treated as best-effort, and the UI shows
  * "no recording" rather than failing the whole call.
  */
@@ -25,7 +25,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!isStorageConfigured()) {
     await db
       .update(schema.meetings)
-      .set({ recordingNote: "Recording storage is not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing)." })
+      .set({ recordingNote: "Recording storage is not configured (BLOB_READ_WRITE_TOKEN missing)." })
       .where(eq(schema.meetings.id, id));
     return NextResponse.json({ stored: false, reason: "storage_not_configured" });
   }
