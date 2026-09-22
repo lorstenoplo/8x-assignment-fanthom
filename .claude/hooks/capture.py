@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import time
 import glob
 import datetime
 
@@ -21,6 +22,11 @@ TOOL = "claude-code"
 def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + \
         "%03dZ" % (datetime.datetime.now(datetime.timezone.utc).microsecond // 1000)
+
+
+def is_real_model(m):
+    """Transcripts also carry placeholder ids such as <synthetic>."""
+    return bool(m) and not m.startswith("<") and m != "unknown"
 
 
 def model_from_transcript(path):
@@ -37,11 +43,41 @@ def model_from_transcript(path):
                 except ValueError:
                     continue
                 m = (rec.get("message") or {}).get("model")
-                if m:
+                if is_real_model(m):
                     model = m
     except (IOError, OSError):
         pass
+    if not model:
+        # Brand-new session: the transcript has no assistant turn yet, or the
+        # writer has not flushed it. Fall back to the most recent transcript
+        # for this project that does name a model.
+        model = model_from_project(path)
     return model or os.environ.get("ANTHROPIC_MODEL") or "unknown"
+
+
+def model_from_project(path):
+    try:
+        d = os.path.dirname(path)
+        files = sorted(glob.glob(os.path.join(d, "*.jsonl")),
+                       key=os.path.getmtime, reverse=True)
+    except (IOError, OSError):
+        return None
+    for f in files[:5]:
+        if f == path:
+            continue
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                for line in reversed(fh.readlines()[-400:]):
+                    try:
+                        rec = json.loads(line.strip())
+                    except ValueError:
+                        continue
+                    m = (rec.get("message") or {}).get("model")
+                    if is_real_model(m):
+                        return m
+        except (IOError, OSError):
+            continue
+    return None
 
 
 def last_assistant_text(path):
@@ -130,6 +166,12 @@ def main():
 
     ts = now_iso()
     model = model_from_transcript(transcript)
+    if model == "unknown" and event == "Stop":
+        for _ in range(6):
+            time.sleep(0.25)
+            model = model_from_transcript(transcript)
+            if model != "unknown":
+                break
     short = session_id.split("-")[0]
 
     if event == "UserPromptSubmit":
