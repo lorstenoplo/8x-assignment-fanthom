@@ -6,8 +6,12 @@ import { downsampleTo16k, floatTo16BitPCM, arrayBufferToBase64, PcmPlayer } from
 
 export type LiveTranscriptEvent = {
   speaker: "You" | "Agent";
+  /** Diarization label ("spk_1", "spk_2", ...) when the input side has more than one voice on the mic. Undefined for the agent (always one voice). */
+  speakerLabel?: string;
   text: string;
   final: boolean;
+  /** Agent only: ms of audio already queued ahead of this text, i.e. how long until it's actually heard. */
+  leadMs?: number;
 };
 
 export type LiveAgentStatus = "idle" | "connecting" | "live" | "reconnecting" | "closed" | "error";
@@ -27,6 +31,9 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const resumeHandleRef = useRef<string | undefined>(undefined);
   const mutedRef = useRef(false);
+  const suppressedRef = useRef(false);
+  const dropOutputRef = useRef(false);
+  const agentTurnActiveRef = useRef(false);
   const stoppedRef = useRef(false);
   const speakingPollRef = useRef<number | undefined>(undefined);
 
@@ -44,7 +51,13 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
     }
     const { token, model } = (await res.json()) as { token: string; model: string };
 
-    const ai = new GoogleGenAI({ apiKey: token });
+    // Ephemeral tokens are v1alpha-only — omitting this makes the SDK's own
+    // warning come true: the connect() call below fails immediately, which
+    // (combined with the unconditional auto-reconnect on close) was looping
+    // through a fresh token mint several times a second until the mint
+    // endpoint's rate limit kicked in and the room never got past
+    // "Connecting…".
+    const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: "v1alpha" } });
 
     const session = await ai.live.connect({
       model,
@@ -53,7 +66,10 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
         sessionResumption: resumeHandleRef.current ? { handle: resumeHandleRef.current } : {},
       },
       callbacks: {
-        onopen: () => setStatus("live"),
+        onopen: () => {
+          reconnectAttemptsRef.current = 0;
+          setStatus("live");
+        },
         onmessage: (msg) => {
           if (stoppedRef.current) return;
 
@@ -61,14 +77,32 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
             playerRef.current?.clear();
           }
 
+          // Your speech is transcribed through this same session, so it
+          // always flows — even while Priya's own output is being dropped.
           const inT = msg.serverContent?.inputTranscription;
-          if (inT?.text) onTranscriptRef.current({ speaker: "You", text: inT.text, final: !!inT.finished });
+          if (inT?.text)
+            onTranscriptRef.current({ speaker: "You", speakerLabel: inT.speakerLabel, text: inT.text, final: !!inT.finished });
 
           const outT = msg.serverContent?.outputTranscription;
-          if (outT?.text) onTranscriptRef.current({ speaker: "Agent", text: outT.text, final: !!outT.finished });
-
           const data = msg.data;
-          if (data) playerRef.current?.enqueue(data);
+          if (outT?.text || data) agentTurnActiveRef.current = true;
+
+          if (!dropOutputRef.current) {
+            if (outT?.text) {
+              // Her text arrives faster than her audio plays; stamp it with
+              // how far ahead audio is queued, i.e. when it's actually heard.
+              const leadMs = playerRef.current?.queuedLeadMs ?? 0;
+              onTranscriptRef.current({ speaker: "Agent", text: outT.text, final: !!outT.finished, leadMs });
+            }
+            if (data) playerRef.current?.enqueue(data);
+          }
+
+          if (msg.serverContent?.turnComplete || msg.serverContent?.interrupted) {
+            agentTurnActiveRef.current = false;
+            // A reply that started while she was suppressed is dropped to
+            // the end, never half-played once suppression lifts.
+            if (!suppressedRef.current) dropOutputRef.current = false;
+          }
 
           if (msg.sessionResumptionUpdate?.resumable && msg.sessionResumptionUpdate.newHandle) {
             resumeHandleRef.current = msg.sessionResumptionUpdate.newHandle;
@@ -88,11 +122,24 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
     sessionRef.current = session;
   }, []);
 
+  // A second line of defense against the failure mode above (or any other
+  // repeated connect failure): back off and cap retries instead of hammering
+  // the token-mint endpoint in a tight loop, which is rate-limited at 6
+  // requests/5min specifically because starting a Live session is metered.
+  const reconnectAttemptsRef = useRef(0);
   const reconnectSoon = useCallback(async () => {
     if (stoppedRef.current) return;
+    if (reconnectAttemptsRef.current >= 4) {
+      setStatus("error");
+      return;
+    }
+    reconnectAttemptsRef.current += 1;
     setStatus("reconnecting");
+    await new Promise((r) => setTimeout(r, 500 * 2 ** reconnectAttemptsRef.current));
+    if (stoppedRef.current) return;
     try {
       await connect();
+      reconnectAttemptsRef.current = 0;
     } catch {
       setStatus("error");
     }
@@ -161,6 +208,42 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
     mutedRef.current = muted;
   }, []);
 
+  // Priya's audio session only ever receives the mic — the notetaker's
+  // synthesized voice plays back through the browser's speakers to the
+  // human, not into her input stream, so without this she has no way to
+  // know the notetaker said anything at all. `sendClientContent` injects it
+  // as a text turn into her ongoing conversation (not spoken audio, but
+  // real context she'll respond to), the closest equivalent to "a person on
+  // the call who just heard the notetaker answer out loud."
+  const notifyOfNotetakerAnswer = useCallback((notetakerName: string, answer: string) => {
+    try {
+      sessionRef.current?.sendClientContent({
+        turns: [
+          `[The user was just talking to the meeting notetaker, ${notetakerName}, not to you — anything you said in reply to that was not heard by anyone. The notetaker answered out loud: "${answer}". Everyone on the call heard it. Briefly and naturally acknowledge it only if it's actually relevant, then continue the conversation. Don't repeat the user's question or the notetaker's answer back.]`,
+        ],
+        turnComplete: true,
+      });
+    } catch {
+      // socket mid-reconnect — the acknowledgment is a nicety, not worth retrying
+    }
+  }, []);
+
+  // While the notetaker has the floor, Priya's output is thrown away at the
+  // source: no audio is played and no transcript is emitted, including any
+  // reply she had already started. A persona instruction can't do this. It
+  // only shapes what she says, not whether a turn gets generated and played.
+  // Her input is NOT muted, since your speech is transcribed through her
+  // session and muting it would drop the question itself.
+  const setSuppressed = useCallback((suppressed: boolean) => {
+    suppressedRef.current = suppressed;
+    if (suppressed) {
+      dropOutputRef.current = true;
+      playerRef.current?.clear();
+    } else if (!agentTurnActiveRef.current) {
+      dropOutputRef.current = false;
+    }
+  }, []);
+
   useEffect(() => () => stop(), [stop]);
 
   return {
@@ -168,6 +251,8 @@ export function useLiveAgent(opts: { onTranscript: (e: LiveTranscriptEvent) => v
     start,
     stop,
     setMuted,
+    setSuppressed,
+    notifyOfNotetakerAnswer,
     getAgentAudioStream: () => playerRef.current?.stream ?? null,
     getMicStream: () => micStreamRef.current,
   };

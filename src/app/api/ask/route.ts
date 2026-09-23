@@ -12,6 +12,8 @@ import type { AskUiBlock } from "@/lib/db/schema";
 const AskBody = z.object({
   threadId: z.string().min(1).max(100),
   message: z.string().min(1).max(2000),
+  /** Attach-a-meeting: scope this turn's retrieval to one meeting instead of the whole workspace. */
+  scopeMeetingId: z.string().max(100).optional(),
 });
 
 const GEN_TIMEOUT_MS = 20_000;
@@ -88,7 +90,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const chunks = await retrieve(body.message, { workspaceId }, 8);
+    const chunks = await retrieve(body.message, { workspaceId, scopeMeetingId: body.scopeMeetingId }, 8);
     const history = await db.query.askMessages.findMany({
       where: eq(schema.askMessages.threadId, body.threadId),
       orderBy: (t, { asc }) => asc(t.createdAt),

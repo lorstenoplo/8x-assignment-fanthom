@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Link2, Loader2, Sparkles, Check } from "lucide-react";
+import { Link2, Loader2, Bookmark, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatTimecode } from "@/lib/utils";
 import type { Highlight } from "@/lib/db/schema";
@@ -53,7 +53,7 @@ export function HighlightsTab({
       {highlights.map((h) => (
         <div key={h.id} className="flex items-center gap-3 rounded-[var(--radius-md)] border border-border p-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-            <Sparkles className="h-4 w-4" />
+            <Bookmark className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
             <button onClick={() => onSeek(h.startMs)} className="text-sm font-medium hover:text-accent">

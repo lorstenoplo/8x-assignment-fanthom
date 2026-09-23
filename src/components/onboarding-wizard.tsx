@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Mic, ShieldCheck, Share2, Users, ArrowRight, ArrowLeft, Loader2 } from "lucide-react";
+import { Logomark } from "@/components/logomark";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +32,7 @@ export function OnboardingWizard({ nextPath = "/calls" }: { nextPath?: string })
     shareWithAttendees: false,
     announceConsent: true,
     guardExternal: true,
-    notetakerName: "Fathom",
+    notetakerName: "Aura",
   });
 
   const set = <K extends keyof Prefs>(key: K, value: Prefs[K]) => setPrefs((p) => ({ ...p, [key]: value }));
@@ -59,10 +60,8 @@ export function OnboardingWizard({ nextPath = "/calls" }: { nextPath?: string })
     <Card className="w-full max-w-lg animate-fade-up">
       <CardHeader>
         <div className="mb-1 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-            <Mic className="h-4 w-4" />
-          </div>
-          <span className="text-sm font-semibold">Fathom Clone</span>
+          <Logomark className="h-6 w-6 text-on-surface" />
+          <span className="text-sm font-semibold">Aura</span>
         </div>
         <div className="flex gap-1.5 pt-2">
           {STEPS.map((_, i) => (

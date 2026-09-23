@@ -1,123 +1,230 @@
 @import "tailwindcss";
 
-/* Emerald on near-black. Dark is the default; light is a supported guest. */
-:root {
-  --background: 0 0% 100%;
-  --foreground: 160 12% 8%;
-  --card: 0 0% 100%;
-  --card-foreground: 160 12% 8%;
-  --muted: 160 10% 96%;
-  --muted-foreground: 160 6% 42%;
-  --border: 160 10% 90%;
-  --input: 160 10% 90%;
-  --accent: 160 84% 32%;
-  --accent-foreground: 0 0% 100%;
-  --accent-soft: 160 60% 94%;
-  --destructive: 0 72% 46%;
-  --destructive-foreground: 0 0% 100%;
-  --warning: 38 92% 45%;
-  --ring: 160 84% 36%;
-  --radius: 0.7rem;
-}
+/*
+ * Ported directly from a supplied reference implementation (exact hex
+ * values, exact class names/structure) — not approximated. Material-3-style
+ * token names, frosted glass fixed sidebar/header (no borders anywhere,
+ * ever — hierarchy comes from shadow + translucency), localized blurred
+ * glow blobs behind the hero (not a full-page gradient wash), rounded-full
+ * pills, rounded-2xl/3xl cards, a fixed orchid→fuchsia→periwinkle gradient
+ * reserved for the primary CTA.
+ */
 
-.dark {
-  --background: 165 14% 5%;
-  --foreground: 150 14% 94%;
-  --card: 165 12% 8%;
-  --card-foreground: 150 14% 94%;
-  --muted: 165 10% 13%;
-  --muted-foreground: 152 8% 62%;
-  --border: 165 10% 16%;
-  --input: 165 10% 18%;
-  --accent: 158 74% 46%;
-  --accent-foreground: 165 30% 6%;
-  --accent-soft: 160 40% 14%;
-  --destructive: 0 68% 56%;
-  --destructive-foreground: 0 0% 100%;
-  --warning: 38 92% 58%;
-  --ring: 158 74% 46%;
+:root {
+  --on-secondary-fixed-variant: #4c4730;
+  --on-error-container: #93000a;
+  --secondary: #645f46;
+  --on-secondary-container: #6a654c;
+  --primary-fixed: #f0dbff;
+  --on-tertiary-container: #fffbff;
+  --primary-fixed-dim: #ddb7ff;
+  --secondary-fixed: #ebe3c3;
+  --secondary-fixed-dim: #cec7a9;
+  --inverse-on-surface: #f4eff7;
+  --primary-container: #9c48ea;
+  --on-secondary-fixed: #1f1c08;
+  --on-tertiary-fixed: #1d1a25;
+  --on-primary-fixed: #2c0051;
+  --on-secondary: #ffffff;
+  --tertiary-fixed: #e7e0ef;
+  --on-tertiary-fixed-variant: #494551;
+  --surface-tint: #842bd2;
+  --on-background: #1c1b20;
+  --on-error: #ffffff;
+  --on-primary-container: #fffbff;
+  --surface-container-lowest: #ffffff;
+  --surface-bright: #fdf8ff;
+  --surface-variant: #e5e1e9;
+  --surface: #fdf8ff;
+  --primary: #8127cf;
+  --on-tertiary: #ffffff;
+  --surface-container-low: #f7f2fa;
+  --surface-container-highest: #e5e1e9;
+  --secondary-container: #ebe3c3;
+  --outline: #7e7385;
+  --tertiary: #5e5a67;
+  --tertiary-container: #777280;
+  --inverse-surface: #313035;
+  --on-primary: #ffffff;
+  --surface-container: #f1ecf4;
+  --inverse-primary: #ddb7ff;
+  --surface-container-high: #ebe6ee;
+  --on-surface: #1c1b20;
+  --error: #ba1a1a;
+  --on-primary-fixed-variant: #6900b3;
+  --background: #fdf8ff;
+  --surface-dim: #ddd8e0;
+  --on-surface-variant: #4d4354;
+  --tertiary-fixed-dim: #cac4d3;
+  --outline-variant: #cfc2d6;
+  --error-container: #ffdad6;
+
+  --obsidian: #1e1b26;
+  --on-obsidian: #ffffff;
+
+  /* Semantic aliases the rest of the app's components already use */
+  --card: var(--surface-container-lowest);
+  --card-foreground: var(--on-surface);
+  --muted: var(--surface-container);
+  --muted-foreground: var(--on-surface-variant);
+  --border: var(--outline-variant);
+  --input: var(--outline-variant);
+  --accent: var(--primary);
+  --accent-foreground: var(--on-primary);
+  --accent-soft: var(--primary-fixed);
+  --destructive: var(--error);
+  --destructive-foreground: var(--on-error);
+  --warning: #c77b00;
+  --ring: var(--primary);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.5rem;
+  --radius-xl: 2rem;
+  --radius-2xl: 3rem;
 }
 
 @theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-accent-soft: hsl(var(--accent-soft));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-warning: hsl(var(--warning));
-  --color-ring: hsl(var(--ring));
-  --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--on-surface);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --color-obsidian: var(--obsidian);
+  --color-on-obsidian: var(--on-obsidian);
+
+  --color-surface: var(--surface);
+  --color-surface-bright: var(--surface-bright);
+  --color-surface-dim: var(--surface-dim);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-primary-container: var(--primary-container);
+  --color-on-primary-container: var(--on-primary-container);
+  --color-primary-fixed: var(--primary-fixed);
+  --color-on-primary-fixed: var(--on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--on-primary-fixed-variant);
+  --color-secondary-fixed: var(--secondary-fixed);
+  --color-on-secondary-fixed: var(--on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--on-secondary-fixed-variant);
+  --color-tertiary-fixed: var(--tertiary-fixed);
+  --color-on-tertiary-fixed: var(--on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--on-tertiary-fixed-variant);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
 }
 
-* {
-  border-color: hsl(var(--border));
-}
+html { height: 100%; }
 
 body {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  min-height: 100%;
+  background: var(--background);
+  color: var(--on-surface);
+  font-family: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
 }
 
-::selection {
-  background: hsl(var(--accent) / 0.28);
+/* Type scale — exact values from the reference's fontSize config. */
+.text-display-hero { font-size: 38px; font-weight: 700; line-height: 48px; letter-spacing: -0.03em; }
+.text-headline-lg { font-size: 26px; font-weight: 600; line-height: 34px; letter-spacing: -0.02em; }
+.text-headline-md { font-size: 20px; font-weight: 600; line-height: 28px; letter-spacing: -0.01em; }
+.text-headline-sm { font-size: 17px; font-weight: 600; line-height: 24px; letter-spacing: -0.01em; }
+.text-body-lg { font-size: 16px; font-weight: 400; line-height: 24px; }
+.text-body-md { font-size: 14px; font-weight: 400; line-height: 22px; }
+.text-body-sm { font-size: 12px; font-weight: 400; line-height: 18px; letter-spacing: 0.01em; }
+.text-label-lg { font-size: 14px; font-weight: 600; line-height: 20px; letter-spacing: 0.01em; }
+.text-label-md { font-size: 13px; font-weight: 500; line-height: 18px; letter-spacing: 0.01em; }
+.text-label-sm { font-size: 11px; font-weight: 600; line-height: 14px; letter-spacing: 0.02em; }
+@media (max-width: 640px) {
+  .text-display-hero { font-size: 28px; line-height: 36px; letter-spacing: -0.02em; }
 }
 
-/* Scrollbars: present, but not shouting. */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 99px;
-  border: 3px solid transparent;
-  background-clip: content-box;
+/* The signature gradient — orchid → fuchsia → periwinkle, exact stops. */
+/* The reference's recurring card recipe — translucent white, blurred,
+   shadow only, never a border. */
+.surface {
+  background: color-mix(in srgb, var(--surface-container-lowest) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
 }
-::-webkit-scrollbar-thumb:hover { background-clip: content-box; background-color: hsl(var(--muted-foreground) / 0.5); }
 
-@keyframes pulse-record {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+.brand-gradient {
+  background: linear-gradient(to right, #e879f9, #a855f7, #6366f1);
 }
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+a,
+summary,
+select,
+input[type="checkbox"],
+input[type="radio"] {
+  cursor: pointer;
+}
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+::selection { background: var(--primary-fixed); color: var(--on-primary-fixed); }
+
+::-webkit-scrollbar { display: none; }
+
+@keyframes pulse-record { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .animate-record { animation: pulse-record 1.6s ease-in-out infinite; }
 
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
-}
+@keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .animate-fade-up { animation: fade-up 0.18s ease-out both; }
+
+@keyframes wave-bar { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }
+.wave-bar { animation: wave-bar 1s ease-in-out infinite; transform-origin: center; }
+
+@keyframes orb-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.animate-orb { animation: orb-pulse 2.6s ease-in-out infinite; }
+
+/* Slow drift for the root gradient wash — subtle enough to read as "alive"
+   rather than as a distraction behind actual content. */
+@keyframes aurora-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(4%, -3%) scale(1.08); }
+}
+.animate-aurora { animation: aurora-drift 16s ease-in-out infinite; }
 
 /* Minimal markdown styling for Ask responses (no typography plugin). */
 .prose-ask :where(p) { margin: 0 0 0.5em; }
 .prose-ask :where(p:last-child) { margin-bottom: 0; }
 .prose-ask :where(ul, ol) { margin: 0.35em 0; padding-left: 1.25em; }
 .prose-ask :where(li) { margin: 0.15em 0; }
-.prose-ask :where(strong) { font-weight: 600; }
-.prose-ask :where(code) {
-  background: hsl(var(--muted));
-  border-radius: 4px;
-  padding: 0.1em 0.35em;
-  font-size: 0.85em;
-}
-.prose-ask :where(pre) {
-  background: hsl(var(--muted));
-  border-radius: var(--radius-md);
-  padding: 0.6em 0.75em;
-  overflow-x: auto;
-  margin: 0.5em 0;
-}
+.prose-ask :where(strong) { font-weight: 700; }
+.prose-ask :where(code) { background: var(--surface-container); border-radius: 6px; padding: 0.1em 0.4em; font-size: 0.85em; }
+.prose-ask :where(pre) { background: var(--surface-container); border-radius: var(--radius-sm); padding: 0.6em 0.75em; overflow-x: auto; margin: 0.5em 0; }
 .prose-ask :where(pre code) { background: none; padding: 0; }
-.prose-ask :where(a) { color: hsl(var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
-.prose-ask :where(h1, h2, h3) { font-weight: 600; margin: 0.6em 0 0.3em; font-size: 1em; }
+.prose-ask :where(a) { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.prose-ask :where(h1, h2, h3) { font-weight: 700; margin: 0.6em 0 0.3em; font-size: 1em; }
 .prose-ask :where(table) { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
-.prose-ask :where(th, td) { border: 1px solid hsl(var(--border)); padding: 0.3em 0.5em; text-align: left; }
+.prose-ask :where(th, td) { border: 1px solid var(--border); padding: 0.3em 0.5em; text-align: left; }

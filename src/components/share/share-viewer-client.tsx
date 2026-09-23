@@ -1,6 +1,7 @@
 "use client";
 
-import { Mic, Calendar } from "lucide-react";
+import { Calendar } from "lucide-react";
+import { Logomark } from "@/components/logomark";
 import { formatDuration, formatTimecode } from "@/lib/utils";
 import type { Meeting, ShareLink, TranscriptSegment, SummaryContent } from "@/lib/db/schema";
 
@@ -22,10 +23,8 @@ export function ShareViewerClient({
   return (
     <div className="min-h-screen bg-background">
       <header className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <Mic className="h-4 w-4" />
-        </div>
-        <span className="text-sm font-semibold">Fathom Clone</span>
+        <Logomark className="h-6 w-6 text-on-surface" />
+        <span className="text-sm font-semibold">Aura</span>
         <span className="ml-auto text-xs text-muted-foreground">Shared {isClip ? "clip" : "recording"}</span>
       </header>
 

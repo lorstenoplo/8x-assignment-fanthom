@@ -10,7 +10,7 @@ export default async function RoomPage() {
         autoRecord: workspace?.autoRecord ?? true,
         announceConsent: workspace?.announceConsent ?? true,
         guardExternal: workspace?.guardExternal ?? true,
-        notetakerName: workspace?.notetakerName ?? "Fathom",
+        notetakerName: workspace?.notetakerName ?? "Aura",
         ownerName: workspace?.ownerName ?? "You",
       }}
     />

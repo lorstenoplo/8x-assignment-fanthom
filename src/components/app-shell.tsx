@@ -28,9 +28,9 @@ export function AppShell({
 
   return (
     <>
-      {/* Fixed, frosted-glass sidebar — no border, translucent over the flat
-          background, elevated by blur alone. */}
-      <aside className="fixed left-0 top-0 z-50 hidden h-full w-64 flex-col justify-between bg-surface-container-lowest/35 p-6 backdrop-blur-xl md:flex">
+      {/* Fully transparent — no fill of its own, so the page's gradient wash
+          reads straight through it instead of stopping at its edge. */}
+      <aside className="fixed left-0 top-0 z-50 hidden h-full w-64 flex-col justify-between p-6 md:flex">
         <div className="flex flex-col gap-9">
           <div className="flex items-center gap-3 px-1">
             <Logomark className="h-6 w-6 text-on-surface" />
@@ -46,7 +46,7 @@ export function AppShell({
                   href={item.href}
                   className={cn(
                     "flex items-center gap-3 rounded-full px-4 py-2.5 text-label-lg transition-all duration-200",
-                    active ? "bg-primary-fixed text-on-primary-fixed shadow-sm" : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface",
+                    active ? "bg-primary-fixed text-on-primary-fixed shadow-sm" : "text-on-surface-variant hover:bg-white hover:shadow-sm hover:text-on-surface",
                   )}
                 >
                   <item.icon className="h-5 w-5" strokeWidth={2} />
@@ -70,15 +70,20 @@ export function AppShell({
               <span className="text-label-sm leading-tight text-on-surface-variant">{workspace.isDemo ? "Shared demo data" : "Syncing notes"}</span>
             </div>
           </div>
-          <button className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container hover:text-on-surface">
+          <button className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-white hover:shadow-sm hover:text-on-surface">
             <ChevronsUpDown className="h-[18px] w-[18px]" />
           </button>
         </div>
       </aside>
 
       <div className="md:pl-64">
-        {/* Fixed, frosted header — floats above content, no border. */}
-        <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between gap-3 bg-surface-bright/40 px-4 backdrop-blur-xl md:left-64 md:h-20 md:px-9">
+        {/* Not fixed — it scrolls away with the page instead of staying
+            pinned above content. A fixed header needs some fill to stay
+            legible over whatever scrolls under it, and any fill at all
+            broke the seamless look of the gradient wash underneath; not
+            being fixed sidesteps the problem instead of fighting it.
+            Fully transparent, no border/shadow of its own. */}
+        <header className="relative z-30 mt-14 flex h-16 items-center justify-between gap-3 bg-transparent px-4 md:mt-0 md:h-20 md:px-9">
           <Link href="/room" className="brand-gradient flex h-8 w-8 items-center justify-center rounded-full text-white md:hidden">
             <Plus className="h-4 w-4" />
           </Link>
@@ -106,9 +111,7 @@ export function AppShell({
             </div>
           </form>
           <div className="flex items-center gap-3">
-            <button className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-lowest/80 text-on-surface-variant shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-all hover:bg-surface-container hover:text-on-surface">
-              <Bell className="h-5 w-5" />
-            </button>
+            <NotificationBell />
             <Link
               href="/room"
               className="brand-gradient flex items-center gap-1.5 rounded-full px-5 py-2.5 text-label-md text-white shadow-[0_8px_20px_-4px_rgba(168,85,247,0.35)] transition-all duration-200 hover:shadow-[0_10px_24px_-4px_rgba(168,85,247,0.45)] active:scale-[0.98]"
@@ -119,7 +122,7 @@ export function AppShell({
           </div>
         </header>
 
-        <nav className="fixed inset-x-0 top-16 z-40 flex gap-2 overflow-x-auto bg-surface-bright/90 px-3 py-2 backdrop-blur-xl md:hidden">
+        <nav className="fixed inset-x-0 top-0 z-40 flex gap-2 overflow-x-auto bg-surface-bright/90 px-3 py-2 backdrop-blur-xl md:hidden">
           {NAV.map((item) => (
             <Link
               key={item.href}
@@ -134,7 +137,7 @@ export function AppShell({
           ))}
         </nav>
 
-        <main className="relative min-h-screen w-full pt-28 md:pt-20">{children}</main>
+        <main className="relative min-h-screen w-full">{children}</main>
       </div>
     </>
   );

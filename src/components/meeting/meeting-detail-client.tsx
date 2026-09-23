@@ -1,20 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Calendar, Users2, Link2, Check, Loader2, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Users2, Link2, Check, Loader2, ShieldAlert, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { cn, formatDuration } from "@/lib/utils";
-import { MeetingPlayer } from "./player";
+import { cn, formatDuration, formatTimecode } from "@/lib/utils";
+import { MeetingPlayer, type SeekRequest } from "./player";
 import { SyncedTranscript } from "./synced-transcript";
 import { SummaryTab } from "./summary-tab";
 import { ActionItemsTab } from "./action-items-tab";
 import { HighlightsTab } from "./highlights-tab";
 import type { MeetingDetailProps } from "./types";
 
-const TABS = ["Summary", "Transcript", "Action items", "Highlights"] as const;
+// Transcript is deliberately not a tab here — it's the always-visible panel
+// on the right, synced to playback. A second copy of it under a tab was
+// pure duplication (two scrollbars, two "active line" highlights).
+const TABS = ["Summary", "Action items", "Highlights"] as const;
 type Tab = (typeof TABS)[number];
 
 export function MeetingDetailClient({
@@ -28,12 +32,12 @@ export function MeetingDetailClient({
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>("Summary");
   const [currentMs, setCurrentMs] = useState(0);
-  const [seekTo, setSeekTo] = useState<number | null>(null);
+  const [seekTo, setSeekTo] = useState<SeekRequest | null>(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   function seek(ms: number) {
-    setSeekTo(ms);
+    setSeekTo((prev) => ({ ms, id: (prev?.id ?? 0) + 1 }));
     setCurrentMs(ms);
   }
 
@@ -58,12 +62,30 @@ export function MeetingDetailClient({
     }
   }
 
+  function exportTranscript() {
+    const lines = segments.map((s) => `[${formatTimecode(s.startMs / 1000)}] ${s.speaker}: ${s.text}`);
+    const blob = new Blob([lines.join("\n") || "No transcript captured for this meeting."], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${meeting.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-transcript.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <Link href="/calls" className="mb-4 inline-flex items-center gap-1.5 text-label-sm text-on-surface-variant transition-colors hover:text-on-surface">
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to Meetings
+      </Link>
+
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold tracking-tight">{meeting.title}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-headline-lg tracking-tight text-on-surface">{meeting.title}</h1>
+            <span className="rounded-full bg-primary-fixed px-2.5 py-0.5 text-label-sm text-on-primary-fixed">
+              {meeting.source === "seed" ? "Seed meeting" : "Test meeting"}
+            </span>
             {meeting.hadExternal && (
               <Badge variant="outline" className="gap-1">
                 <ShieldAlert className="h-3 w-3" /> External attendee
@@ -71,14 +93,13 @@ export function MeetingDetailClient({
             )}
             {meeting.processingError && <Badge variant="warning">Partial processing</Badge>}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-on-surface-variant">
+            <span>
               {new Date(meeting.startedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             </span>
-            <span>{formatDuration(meeting.durationSec)}</span>
+            <span>· {formatDuration(meeting.durationSec)}</span>
             <span className="flex items-center gap-1">
-              <Users2 className="h-3 w-3" /> {participants.length}
+              <Users2 className="h-3.5 w-3.5" /> {participants.length}
             </span>
           </div>
         </div>
@@ -92,21 +113,25 @@ export function MeetingDetailClient({
             {sharing ? <Loader2 className="h-4 w-4 animate-spin" /> : copied ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
             {copied ? "Copied" : "Share"}
           </Button>
+          <Button variant="outline" size="sm" onClick={exportTranscript}>
+            <Download className="h-4 w-4" /> Export
+          </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="flex flex-col gap-4">
-          <MeetingPlayer meeting={meeting} currentMs={currentMs} onTimeChange={setCurrentMs} seekToMs={seekTo} />
-          <div className="rounded-[var(--radius-lg)] border border-border bg-card">
-            <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="flex flex-col gap-5">
+          <MeetingPlayer meeting={meeting} currentMs={currentMs} onTimeChange={setCurrentMs} seek={seekTo} />
+
+          <div className="rounded-3xl bg-surface-container-lowest/80 shadow-sm backdrop-blur-md">
+            <div className="flex items-center gap-1 border-b border-outline-variant/40 px-3 py-2">
               {TABS.map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
                   className={cn(
-                    "rounded-[var(--radius-sm)] px-3 py-1.5 text-xs font-medium transition-colors",
-                    tab === t ? "bg-accent-soft text-accent" : "text-muted-foreground hover:bg-muted/60",
+                    "rounded-full px-3.5 py-1.5 text-label-md transition-colors",
+                    tab === t ? "bg-primary-fixed text-on-primary-fixed" : "text-on-surface-variant hover:bg-surface-container-low",
                   )}
                 >
                   {t}
@@ -123,17 +148,13 @@ export function MeetingDetailClient({
                   onSeek={seek}
                 />
               )}
-              {tab === "Transcript" && <SyncedTranscript segments={segments} currentMs={currentMs} onSeek={seek} />}
               {tab === "Action items" && <ActionItemsTab items={actionItems} onSeek={seek} />}
               {tab === "Highlights" && <HighlightsTab meetingId={meeting.id} highlights={highlights} onSeek={seek} />}
             </div>
           </div>
         </div>
 
-        <div className="hidden max-h-[600px] flex-col overflow-y-auto rounded-[var(--radius-lg)] border border-border bg-card lg:flex">
-          <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Transcript
-          </div>
+        <div className="flex h-[560px] flex-col overflow-hidden rounded-3xl lg:h-[720px] bg-surface-container-lowest/80 shadow-sm backdrop-blur-md">
           <SyncedTranscript segments={segments} currentMs={currentMs} onSeek={seek} />
         </div>
       </div>

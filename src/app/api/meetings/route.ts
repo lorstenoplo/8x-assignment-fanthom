@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
-import { ensureWorkspace } from "@/server/session";
-import { eq } from "drizzle-orm";
+import { ensureWorkspace, getViewingWorkspaceId } from "@/server/session";
+import { desc, eq } from "drizzle-orm";
 import { rateLimit, clientKey } from "@/server/rate-limit";
 
 const CreateBody = z.object({
   title: z.string().min(1).max(200).default("Untitled meeting"),
 });
+
+/** Lightweight list for pickers (e.g. Ask's "attach a meeting") — id/title/date only. */
+export async function GET() {
+  const workspaceId = await getViewingWorkspaceId();
+  const meetings = await db.query.meetings.findMany({
+    where: eq(schema.meetings.workspaceId, workspaceId),
+    orderBy: [desc(schema.meetings.startedAt)],
+    columns: { id: true, title: true, startedAt: true, status: true },
+  });
+  return NextResponse.json({ meetings });
+}
 
 /** Starts a meeting: creates the row and the host participant, room-side. */
 export async function POST(req: Request) {
@@ -25,13 +36,24 @@ export async function POST(req: Request) {
     .values({ workspaceId, title: body.title, status: "live", source: "room" })
     .returning();
 
-  await db.insert(schema.participants).values({
-    meetingId: meeting.id,
-    name: workspace?.ownerName || "You",
-    email: workspace?.ownerEmail || null,
-    role: "host",
-    isExternal: false,
-  });
+  // The AI interviewer is a real second party on the call — not a video
+  // feed, but a participant that spoke and should count as one, the same
+  // way a real notetaker bot would show up in Zoom/Meet's participant list.
+  await db.insert(schema.participants).values([
+    {
+      meetingId: meeting.id,
+      name: workspace?.ownerName || "You",
+      email: workspace?.ownerEmail || null,
+      role: "host",
+      isExternal: false,
+    },
+    {
+      meetingId: meeting.id,
+      name: "Priya",
+      role: "agent",
+      isExternal: false,
+    },
+  ]);
 
   return NextResponse.json({ meeting });
 }

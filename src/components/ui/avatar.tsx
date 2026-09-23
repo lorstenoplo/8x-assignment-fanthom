@@ -12,17 +12,13 @@ export function Avatar({
   const hue = speakerHue(name);
   return (
     <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold uppercase",
-        className,
-      )}
+      className={cn("inline-flex shrink-0 items-center justify-center rounded-full font-extrabold uppercase ring-2 ring-white/80", className)}
       style={{
         width: size,
         height: size,
         fontSize: Math.max(9, size * 0.36),
-        background: `hsl(${hue} 60% 22%)`,
-        color: `hsl(${hue} 80% 78%)`,
-        border: `1px solid hsl(${hue} 60% 32%)`,
+        background: `hsl(${hue} 85% 82%)`,
+        color: `hsl(${hue} 55% 32%)`,
       }}
       title={name}
     >

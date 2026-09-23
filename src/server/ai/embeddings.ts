@@ -7,7 +7,34 @@ import { EMBEDDING_DIMENSIONS } from "@/lib/db/schema";
  * single failure from discarding an entire meeting's worth of chunks.
  */
 const BATCH_SIZE = 32;
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 6_000;
+const RETRIES = 2;
+
+/**
+ * A fresh, isolated call to this same endpoint consistently returns in
+ * under a second; the failures actually seen were a long-running dev server
+ * process hanging until this call's own abort timeout — the same class of
+ * flaky-connection issue `src/lib/db/index.ts` retries around, just on a
+ * different outbound host. A short per-attempt timeout plus a couple of
+ * retries gets a fresh connection attempt instead of waiting out one stuck
+ * one for the full outer request budget.
+ */
+async function embedBatch(batch: string[], taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY") {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      return await gemini().models.embedContent({
+        model: MODELS.embedding,
+        contents: batch,
+        config: { taskType, outputDimensionality: EMBEDDING_DIMENSIONS, abortSignal: AbortSignal.timeout(TIMEOUT_MS) },
+      });
+    } catch (err) {
+      lastErr = err;
+      console.error(`embedContent attempt ${attempt} failed`, err);
+    }
+  }
+  throw lastErr;
+}
 
 export async function embedTexts(
   texts: string[],
@@ -17,11 +44,7 @@ export async function embedTexts(
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
-    const res = await gemini().models.embedContent({
-      model: MODELS.embedding,
-      contents: batch,
-      config: { taskType, outputDimensionality: EMBEDDING_DIMENSIONS, abortSignal: AbortSignal.timeout(TIMEOUT_MS) },
-    });
+    const res = await embedBatch(batch, taskType);
     const embeddings = res.embeddings ?? [];
     if (embeddings.length !== batch.length) {
       throw new Error(

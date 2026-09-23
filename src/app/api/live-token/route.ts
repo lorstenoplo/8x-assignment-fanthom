@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { gemini, MODELS, assertConfigured, AiConfigError } from "@/server/ai/client";
-import { participantLiveConfig, INTERVIEWER_PERSONA } from "@/server/ai/live-config";
+import { participantLiveConfig, interviewerPersona, notetakerVoiceConfig } from "@/server/ai/live-config";
 import { getWorkspaceId } from "@/server/session";
 import { rateLimit, clientKey } from "@/server/rate-limit";
 
@@ -15,7 +17,11 @@ import { rateLimit, clientKey } from "@/server/rate-limit";
 export async function POST(req: Request) {
   const workspaceId = await getWorkspaceId();
   const key = clientKey(req, workspaceId);
-  const { allowed, retryAfterMs } = rateLimit(`live-token:${key}`, 6, 5 * 60 * 1000);
+  const body = (await req.json().catch(() => ({}))) as { purpose?: string };
+  const isVoice = body.purpose === "notetaker-voice";
+  // Separate buckets, so the notetaker's voice session can't use up the
+  // participant's reconnect budget (or the other way round).
+  const { allowed, retryAfterMs } = rateLimit(`live-token:${isVoice ? "voice" : "participant"}:${key}`, 6, 5 * 60 * 1000);
   if (!allowed) {
     return NextResponse.json(
       { error: "rate_limited" },
@@ -25,6 +31,11 @@ export async function POST(req: Request) {
 
   try {
     assertConfigured();
+    const workspace = workspaceId
+      ? await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, workspaceId) })
+      : null;
+    const notetakerName = workspace?.notetakerName || "Aura";
+
     const token = await gemini().authTokens.create({
       config: {
         uses: 1,
@@ -32,9 +43,9 @@ export async function POST(req: Request) {
         newSessionExpireTime: new Date(Date.now() + 60 * 1000).toISOString(),
         liveConnectConstraints: {
           model: MODELS.live,
-          config: participantLiveConfig(INTERVIEWER_PERSONA),
+          config: isVoice ? notetakerVoiceConfig() : participantLiveConfig(interviewerPersona(notetakerName), notetakerName),
         },
-        lockAdditionalFields: ["systemInstruction", "responseModalities"],
+        lockAdditionalFields: isVoice ? ["systemInstruction", "responseModalities", "speechConfig"] : ["systemInstruction", "responseModalities"],
       },
     });
     return NextResponse.json({ token: token.name, model: MODELS.live });

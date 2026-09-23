@@ -1,5 +1,6 @@
 import "server-only";
 import { db, schema } from "@/lib/db";
+import { eq, asc } from "drizzle-orm";
 import { gemini, MODELS } from "./client";
 import { retrieve, toCitations, type RetrievedChunk } from "./retrieval";
 import { guardAskMessage } from "./groq-guardrail";
@@ -70,12 +71,33 @@ export async function answerInCall(params: {
     6,
   );
 
+  // Pulling in the current call's own transcript-so-far closes a real gap
+  // (a decision made a minute ago in this same still-live call isn't
+  // embedded yet, so `retrieve` alone can't see it) — but only when the
+  // question actually references *this* call. Including it unconditionally
+  // on every question was the real bug: it buried a genuinely relevant past
+  // meeting (e.g. Dana's actual pricing discussion, which retrieval finds
+  // fine on its own) under irrelevant noise from a call that has nothing to
+  // do with what was asked. RAG across past meetings is the whole point of
+  // this feature — someone can just scroll up for what was said just now.
+  const referencesCurrentCall = /\b(this call|current call|current meeting|just now|just said|just decided|right now|earlier today|we just)\b/i.test(
+    params.question,
+  );
+  let liveTranscript = "";
+  if (referencesCurrentCall) {
+    const liveSegments = await db.query.transcriptSegments.findMany({
+      where: eq(schema.transcriptSegments.meetingId, params.meetingId),
+      orderBy: [asc(schema.transcriptSegments.startMs)],
+    });
+    liveTranscript = liveSegments.map((s) => `${s.speaker}: ${s.text}`).join("\n");
+  }
+
   let final: string;
   let blocked = false;
   let blockReason: string | undefined;
 
   try {
-    const draft = await draftAnswer(params.question, chunks);
+    const draft = await draftAnswer(params.question, chunks, liveTranscript);
     final = draft;
 
     if (params.externalPresent) {
@@ -108,12 +130,16 @@ export async function answerInCall(params: {
   return { answer: final, blocked, blockReason, citations: blocked ? [] : citations };
 }
 
-async function draftAnswer(question: string, chunks: RetrievedChunk[]): Promise<string> {
-  if (chunks.length === 0) {
+async function draftAnswer(question: string, chunks: RetrievedChunk[], liveTranscript: string): Promise<string> {
+  if (chunks.length === 0 && !liveTranscript.trim()) {
     return "I don't have anything on that from past meetings — nothing relevant came up.";
   }
-  const context = chunks
-    .map((c) => `From "${c.meetingTitle}":\n${c.text}`)
+  const pastContext = chunks.map((c) => `From "${c.meetingTitle}":\n${c.text}`).join("\n\n---\n\n");
+  const context = [
+    liveTranscript.trim() ? `From this current, still-ongoing meeting so far:\n${liveTranscript}` : null,
+    pastContext || null,
+  ]
+    .filter(Boolean)
     .join("\n\n---\n\n");
 
   const res = await gemini().models.generateContent({
@@ -123,12 +149,26 @@ async function draftAnswer(question: string, chunks: RetrievedChunk[]): Promise<
         role: "user",
         parts: [
           {
-            text: `You are the meeting notetaker, addressed by name mid-call. Answer the question in 1-3 short spoken sentences using only the context below. If the context doesn't actually answer it, say so plainly rather than guessing.\n\nQuestion: ${question}\n\nContext:\n${context}`,
+            text: `You are the meeting notetaker, addressed by name mid-call. Answer the question in 1-3 short spoken sentences using only the context below — this includes what's already been said earlier in THIS same call, not just past meetings. If the context doesn't actually answer it, say so plainly rather than guessing.\n\nQuestion: ${question}\n\nContext:\n${context}`,
           },
         ],
       },
     ],
-    config: { temperature: 0.2, maxOutputTokens: 220, abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS) },
+    // Missing `thinkingConfig` here was the actual cause of answers cutting
+    // off mid-word ("The provided notes don") — this model reserves hidden
+    // reasoning tokens out of `maxOutputTokens` by default, the same
+    // truncation bug already fixed on every other Gemini call in this
+    // codebase but missed on this one.
+    config: {
+      temperature: 0.2,
+      // 300 was still cutting it close for a genuinely detailed answer —
+      // with thinkingBudget at 0 none of this is wasted on hidden reasoning
+      // anymore, so there's no real cost to giving it real headroom instead
+      // of trying to guess a tight number that matches "1-3 sentences."
+      maxOutputTokens: 1024,
+      thinkingConfig: { thinkingBudget: 0 },
+      abortSignal: AbortSignal.timeout(GEN_TIMEOUT_MS),
+    },
   });
   return res.text?.trim() || "I couldn't put together an answer for that.";
 }

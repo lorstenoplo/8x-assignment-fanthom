@@ -32,13 +32,21 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Finding or creating the demo workspace…");
-  let workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.isDemo, true) });
+  const targetId = process.env.SEED_WORKSPACE_ID;
+  let workspace = targetId
+    ? await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, targetId) })
+    : await db.query.workspaces.findFirst({ where: eq(schema.workspaces.isDemo, true) });
+
+  if (targetId && !workspace) {
+    console.error(`SEED_WORKSPACE_ID=${targetId} does not match any existing workspace.`);
+    process.exit(1);
+  }
+  console.log(targetId ? `Seeding into workspace ${targetId}…` : "Finding or creating the demo workspace…");
   if (!workspace) {
     [workspace] = await db
       .insert(schema.workspaces)
       .values({
-        name: "Fathom Clone (Demo)",
+        name: "Aura (Demo)",
         ownerName: "Priya Nair",
         ownerEmail: "priya@fathomclone.dev",
         isDemo: true,
@@ -47,7 +55,7 @@ async function main() {
         shareWithAttendees: false,
         announceConsent: true,
         guardExternal: true,
-        notetakerName: "Fathom",
+        notetakerName: "Aura",
         internalDomains: ["fathomclone.dev"],
         defaultTemplate: "general",
       })

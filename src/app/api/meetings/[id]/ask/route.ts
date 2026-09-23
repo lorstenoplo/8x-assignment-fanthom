@@ -53,6 +53,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       askerEmail: asker?.email ?? null,
       atMs: body.atMs,
     });
+    // Text only. Speech is streamed separately by the room's own Live voice
+    // session: the batch TTS model took ~21s to render ~15s of speech,
+    // which pushed this request past the client's timeout.
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof AiConfigError) {

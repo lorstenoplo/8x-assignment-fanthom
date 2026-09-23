@@ -43,7 +43,7 @@ export const workspaces = pgTable("workspaces", {
   /** Block the in-call agent from answering while a guest is present. */
   guardExternal: boolean("guard_external").notNull().default(true),
   /** What you must say to summon the notetaker. */
-  notetakerName: text("notetaker_name").notNull().default("Fathom"),
+  notetakerName: text("notetaker_name").notNull().default("Aura"),
   /** Domains treated as internal; everyone else is a guest. */
   internalDomains: jsonb("internal_domains").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   defaultTemplate: text("default_template").notNull().default("general"),

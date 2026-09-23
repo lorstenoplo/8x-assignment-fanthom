@@ -10,6 +10,8 @@ export type RetrievalContext = {
   externalPresent?: boolean;
   /** Email of whoever is asking, if known — lets a guest retrieve meetings they themselves attended. */
   askerEmail?: string | null;
+  /** Attach-a-meeting: when set, Ask is scoped to this one meeting's chunks only — the embedding search still runs (so it finds the *right* moments within it), it just never sees any other meeting. */
+  scopeMeetingId?: string | null;
 };
 
 export type RetrievedChunk = {
@@ -50,6 +52,8 @@ export async function retrieve(
       )
     : sql`true`;
 
+  const scopePredicate = ctx.scopeMeetingId ? eq(schema.chunks.meetingId, ctx.scopeMeetingId) : sql`true`;
+
   const rows = await db
     .select({
       id: schema.chunks.id,
@@ -61,7 +65,7 @@ export async function retrieve(
     })
     .from(schema.chunks)
     .innerJoin(schema.meetings, eq(schema.meetings.id, schema.chunks.meetingId))
-    .where(and(eq(schema.chunks.workspaceId, ctx.workspaceId), guardPredicate))
+    .where(and(eq(schema.chunks.workspaceId, ctx.workspaceId), guardPredicate, scopePredicate))
     .orderBy(distance)
     .limit(limit);
 

@@ -102,4 +102,14 @@ export class PcmPlayer {
   get isSpeaking() {
     return this.activeSources.size > 0;
   }
+
+  /** How much already-queued audio will play before anything enqueued now. */
+  get queuedLeadMs() {
+    return Math.max(0, this.nextStartTime - this.ctx.currentTime) * 1000;
+  }
+
+  /** Resolves once everything queued so far has finished playing. */
+  waitUntilDrained(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, this.queuedLeadMs));
+  }
 }
