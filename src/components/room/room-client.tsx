@@ -818,7 +818,8 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
               : "Couldn't save the recording — the call was still transcribed.",
           );
         }
-      } catch {
+      } catch (err) {
+        console.error("recording upload failed", err);
         toast.warning(
           "Couldn't upload the recording — the call was still transcribed.",
         );

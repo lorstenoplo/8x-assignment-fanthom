@@ -5,10 +5,16 @@ import { isNull, and, desc, eq } from "drizzle-orm";
 import { answerInCall } from "@/server/ai/agent-answer";
 import { AiConfigError } from "@/server/ai/client";
 import { requireOwnMeeting } from "@/server/meeting-guard";
+import { getViewingWorkspaceIds } from "@/server/session";
 
 const AskBody = z.object({
   question: z.string().min(1).max(1000),
-  atMs: z.number().int().nonnegative().max(24 * 60 * 60 * 1000).default(0),
+  atMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(24 * 60 * 60 * 1000)
+    .default(0),
 });
 
 /** Blocks rapid-fire repeats of the wake word (retries, echo, a stuck client) from stacking up paid model calls. */
@@ -21,11 +27,13 @@ const MIN_GAP_MS = 3_000;
  * room right now — never trusted from the client — so it can't be spoofed by
  * a compromised page into skipping the guard.
  */
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const { id } = await params;
   const guard = await requireOwnMeeting(id);
   if ("error" in guard) return guard.error;
-  const { meeting } = guard;
 
   const body = AskBody.parse(await req.json());
 
@@ -39,15 +47,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const stillPresent = await db.query.participants.findMany({
-    where: and(eq(schema.participants.meetingId, id), isNull(schema.participants.leftAt)),
+    where: and(
+      eq(schema.participants.meetingId, id),
+      isNull(schema.participants.leftAt),
+    ),
   });
   const externalPresent = stillPresent.some((p) => p.isExternal);
   const asker = stillPresent.find((p) => p.role === "host");
+  const viewingWorkspaceIds = await getViewingWorkspaceIds();
 
   try {
     const result = await answerInCall({
       meetingId: id,
-      workspaceId: meeting.workspaceId,
+      workspaceId: viewingWorkspaceIds,
       question: body.question,
       externalPresent,
       askerEmail: asker?.email ?? null,

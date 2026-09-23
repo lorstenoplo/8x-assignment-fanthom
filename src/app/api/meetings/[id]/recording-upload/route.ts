@@ -24,10 +24,10 @@ export async function POST(
         throw new Error("Invalid recording upload target");
       }
       return {
-        allowedContentTypes: ["video/webm", "audio/webm"],
+        allowedContentTypes: ["video/webm*", "audio/webm*"],
         maximumSizeInBytes: MAX_UPLOAD_BYTES,
         addRandomSuffix: false,
-        allowOverwriting: true,
+        allowOverwrite: true,
         tokenPayload: JSON.stringify({ meetingId: id, multipart }),
       };
     },

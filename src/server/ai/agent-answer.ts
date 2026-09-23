@@ -32,7 +32,7 @@ const GUEST_SENSITIVE_OUTPUT =
  */
 export async function answerInCall(params: {
   meetingId: string;
-  workspaceId: string;
+  workspaceId: string | string[];
   question: string;
   externalPresent: boolean;
   askerEmail?: string | null;
