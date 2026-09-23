@@ -74,8 +74,9 @@ export async function getViewingWorkspaceId(): Promise<string> {
   return (await getViewingWorkspaceIds())[0];
 }
 
-/** The demo site always reads from the seeded workspace, never from a browser cookie. */
+/** Read paths always include seeded demo data and the current user's meetings. */
 export async function getViewingWorkspaceIds(): Promise<string[]> {
+  const own = await getWorkspaceId();
   const demo =
     process.env.DEMO_WORKSPACE_ID ??
     (
@@ -84,5 +85,5 @@ export async function getViewingWorkspaceIds(): Promise<string[]> {
       })
     )?.id;
   if (!demo) throw new Error("No demo workspace configured/seeded.");
-  return [demo];
+  return [...new Set([demo, own].filter((id): id is string => Boolean(id)))];
 }
