@@ -24,7 +24,7 @@ export async function POST(
         throw new Error("Invalid recording upload target");
       }
       return {
-        allowedContentTypes: ["video/webm*", "audio/webm*"],
+        allowedContentTypes: ["video/webm"],
         maximumSizeInBytes: MAX_UPLOAD_BYTES,
         addRandomSuffix: false,
         allowOverwrite: true,

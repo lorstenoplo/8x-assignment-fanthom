@@ -795,19 +795,20 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       );
     } else {
       try {
+        const recordingContentType = "video/webm";
         const blob = await upload(`recordings/${mid}.webm`, recording.blob, {
           access: "public",
           handleUploadUrl: `/api/meetings/${mid}/recording-upload`,
           multipart: true,
           clientPayload: JSON.stringify({ meetingId: mid }),
-          contentType: recording.blob.type || "video/webm",
+          contentType: recordingContentType,
         });
         const res = await fetchWithRetry(`/api/meetings/${mid}/recording`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: blob.url,
-            contentType: recording.blob.type || "video/webm",
+            contentType: recordingContentType,
           }),
         });
         const data = await res.json().catch(() => ({}));
