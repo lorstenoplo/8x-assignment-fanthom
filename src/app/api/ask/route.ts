@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { eq, desc } from "drizzle-orm";
-import { getViewingWorkspaceId } from "@/server/session";
+import { getViewingWorkspaceIds } from "@/server/session";
 import { retrieve, toCitations } from "@/server/ai/retrieval";
 import { gemini, MODELS, AiConfigError } from "@/server/ai/client";
 import { guardAskMessage } from "@/server/ai/groq-guardrail";
@@ -25,20 +25,27 @@ const ANSWER_SCHEMA = {
   properties: {
     markdown: {
       type: "string",
-      description: "The answer, formatted as markdown (lists, bold, short headings where useful). Cite meetings by name inline.",
+      description:
+        "The answer, formatted as markdown (lists, bold, short headings where useful). Cite meetings by name inline.",
     },
     meetingCards: {
       type: "array",
-      description: "Meetings worth surfacing as a card, when the answer centers on one or more specific meetings.",
+      description:
+        "Meetings worth surfacing as a card, when the answer centers on one or more specific meetings.",
       items: {
         type: "object",
-        properties: { meetingId: { type: "string" }, title: { type: "string" }, startMs: { type: "integer" } },
+        properties: {
+          meetingId: { type: "string" },
+          title: { type: "string" },
+          startMs: { type: "integer" },
+        },
         required: ["meetingId", "title"],
       },
     },
     actionItemsBlock: {
       type: "array",
-      description: "Populate only when the user specifically asked about action items / open tasks / who owns what.",
+      description:
+        "Populate only when the user specifically asked about action items / open tasks / who owns what.",
       items: {
         type: "object",
         properties: { text: { type: "string" }, assignee: { type: "string" } },
@@ -53,11 +60,17 @@ const REFUSAL_MARKDOWN =
   "I can only help with questions about your own meetings, or how this app works — that one's outside what I can answer here.";
 
 export async function POST(req: Request) {
-  const workspaceId = await getViewingWorkspaceId();
+  const workspaceIds = await getViewingWorkspaceIds();
+  const workspaceId = workspaceIds[0];
   const body = AskBody.parse(await req.json());
 
-  const { allowed } = rateLimit(`ask:${clientKey(req, workspaceId)}`, 20, 60 * 1000);
-  if (!allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  const { allowed } = rateLimit(
+    `ask:${clientKey(req, workspaceId)}`,
+    20,
+    60 * 1000,
+  );
+  if (!allowed)
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
 
   // Concurrency guard: don't let a second message on the same thread start
   // generating while the first hasn't gotten its reply yet. Checked against
@@ -69,7 +82,10 @@ export async function POST(req: Request) {
     orderBy: [desc(schema.askMessages.createdAt)],
     limit: 1,
   });
-  if (lastMessage?.role === "user" && Date.now() - lastMessage.createdAt.getTime() < STALE_LOCK_MS) {
+  if (
+    lastMessage?.role === "user" &&
+    Date.now() - lastMessage.createdAt.getTime() < STALE_LOCK_MS
+  ) {
     return NextResponse.json({ error: "already_processing" }, { status: 429 });
   }
 
@@ -84,20 +100,32 @@ export async function POST(req: Request) {
   if (guard.blocked) {
     const [saved] = await db
       .insert(schema.askMessages)
-      .values({ workspaceId, threadId: body.threadId, role: "assistant", content: REFUSAL_MARKDOWN, guardBlocked: true })
+      .values({
+        workspaceId,
+        threadId: body.threadId,
+        role: "assistant",
+        content: REFUSAL_MARKDOWN,
+        guardBlocked: true,
+      })
       .returning();
     return NextResponse.json({ message: saved });
   }
 
   try {
-    const chunks = await retrieve(body.message, { workspaceId, scopeMeetingId: body.scopeMeetingId }, 8);
+    const chunks = await retrieve(
+      body.message,
+      { workspaceId: workspaceIds, scopeMeetingId: body.scopeMeetingId },
+      8,
+    );
     const history = await db.query.askMessages.findMany({
       where: eq(schema.askMessages.threadId, body.threadId),
       orderBy: (t, { asc }) => asc(t.createdAt),
       limit: 20,
     });
 
-    const context = chunks.map((c) => `From "${c.meetingTitle}" (id: ${c.meetingId}):\n${c.text}`).join("\n\n---\n\n");
+    const context = chunks
+      .map((c) => `From "${c.meetingTitle}" (id: ${c.meetingId}):\n${c.text}`)
+      .join("\n\n---\n\n");
     const conversation = history
       .slice(0, -1)
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
@@ -130,7 +158,9 @@ export async function POST(req: Request) {
       meetingCards?: { meetingId: string; title: string; startMs?: number }[];
       actionItemsBlock?: { text: string; assignee?: string }[];
     };
-    const markdown = parsed.markdown?.trim() || "I couldn't find anything relevant in past meetings.";
+    const markdown =
+      parsed.markdown?.trim() ||
+      "I couldn't find anything relevant in past meetings.";
 
     const blocks: AskUiBlock[] = [];
     for (const card of parsed.meetingCards ?? []) {
@@ -150,7 +180,14 @@ export async function POST(req: Request) {
 
     const [saved] = await db
       .insert(schema.askMessages)
-      .values({ workspaceId, threadId: body.threadId, role: "assistant", content: markdown, citations, blocks })
+      .values({
+        workspaceId,
+        threadId: body.threadId,
+        role: "assistant",
+        content: markdown,
+        citations,
+        blocks,
+      })
       .returning();
 
     return NextResponse.json({ message: saved });
@@ -158,20 +195,31 @@ export async function POST(req: Request) {
     const isAbort = err instanceof Error && err.name === "AbortError";
     // Record a visible failure rather than leaving the thread silently
     // "stuck processing" from the client's perspective.
-    const failText = isAbort ? "That took too long to answer — try a more specific question." : "Something went wrong answering that.";
+    const failText = isAbort
+      ? "That took too long to answer — try a more specific question."
+      : "Something went wrong answering that.";
     const [saved] = await db
       .insert(schema.askMessages)
-      .values({ workspaceId, threadId: body.threadId, role: "assistant", content: failText })
+      .values({
+        workspaceId,
+        threadId: body.threadId,
+        role: "assistant",
+        content: failText,
+      })
       .returning();
 
-    if (err instanceof AiConfigError) return NextResponse.json({ error: "ai_not_configured" }, { status: 503 });
+    if (err instanceof AiConfigError)
+      return NextResponse.json({ error: "ai_not_configured" }, { status: 503 });
     console.error("ask error", err);
-    return NextResponse.json({ message: saved }, { status: isAbort ? 504 : 500 });
+    return NextResponse.json(
+      { message: saved },
+      { status: isAbort ? 504 : 500 },
+    );
   }
 }
 
 export async function GET(req: Request) {
-  const workspaceId = await getViewingWorkspaceId();
+  const workspaceIds = await getViewingWorkspaceIds();
   const url = new URL(req.url);
   const threadId = url.searchParams.get("threadId");
   if (!threadId) return NextResponse.json({ messages: [] });
@@ -181,6 +229,6 @@ export async function GET(req: Request) {
   });
   // Defence in depth: threadId is a UUID the client generated, but never trust
   // it alone — confirm every message actually belongs to this workspace.
-  const filtered = messages.filter((m) => m.workspaceId === workspaceId);
+  const filtered = messages.filter((m) => workspaceIds.includes(m.workspaceId));
   return NextResponse.json({ messages: filtered });
 }

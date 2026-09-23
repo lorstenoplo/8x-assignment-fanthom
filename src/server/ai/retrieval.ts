@@ -1,11 +1,11 @@
 import "server-only";
 import { db, schema } from "@/lib/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { embedText } from "./embeddings";
 import type { Citation } from "@/lib/db/schema";
 
 export type RetrievalContext = {
-  workspaceId: string;
+  workspaceId: string | string[];
   /** True if a guest is currently in the room asking. Unset for Ask/Search, which run outside any call. */
   externalPresent?: boolean;
   /** Email of whoever is asking, if known — lets a guest retrieve meetings they themselves attended. */
@@ -52,7 +52,9 @@ export async function retrieve(
       )
     : sql`true`;
 
-  const scopePredicate = ctx.scopeMeetingId ? eq(schema.chunks.meetingId, ctx.scopeMeetingId) : sql`true`;
+  const scopePredicate = ctx.scopeMeetingId
+    ? eq(schema.chunks.meetingId, ctx.scopeMeetingId)
+    : sql`true`;
 
   const rows = await db
     .select({
@@ -65,7 +67,16 @@ export async function retrieve(
     })
     .from(schema.chunks)
     .innerJoin(schema.meetings, eq(schema.meetings.id, schema.chunks.meetingId))
-    .where(and(eq(schema.chunks.workspaceId, ctx.workspaceId), guardPredicate, scopePredicate))
+    .where(
+      and(
+        inArray(
+          schema.chunks.workspaceId,
+          Array.isArray(ctx.workspaceId) ? ctx.workspaceId : [ctx.workspaceId],
+        ),
+        guardPredicate,
+        scopePredicate,
+      ),
+    )
     .orderBy(distance)
     .limit(limit);
 

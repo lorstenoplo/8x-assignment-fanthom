@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { upload } from "@vercel/blob/client";
 import {
   Mic,
   MicOff,
@@ -794,10 +795,20 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       );
     } else {
       try {
+        const blob = await upload(`recordings/${mid}.webm`, recording.blob, {
+          access: "public",
+          handleUploadUrl: `/api/meetings/${mid}/recording-upload`,
+          multipart: true,
+          clientPayload: JSON.stringify({ meetingId: mid }),
+          contentType: recording.blob.type || "video/webm",
+        });
         const res = await fetchWithRetry(`/api/meetings/${mid}/recording`, {
           method: "POST",
-          body: recording.blob,
-          headers: { "Content-Type": recording.blob.type },
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: blob.url,
+            contentType: recording.blob.type || "video/webm",
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!data.stored) {

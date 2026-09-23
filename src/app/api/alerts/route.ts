@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
-import { eq } from "drizzle-orm";
-import { getViewingWorkspaceId, ensureWorkspace } from "@/server/session";
+import { inArray } from "drizzle-orm";
+import { getViewingWorkspaceIds, ensureWorkspace } from "@/server/session";
 
 const CreateAlert = z.object({
   name: z.string().min(1),
@@ -12,13 +12,17 @@ const CreateAlert = z.object({
 });
 
 export async function GET() {
-  const workspaceId = await getViewingWorkspaceId();
+  const workspaceIds = await getViewingWorkspaceIds();
   const list = await db.query.alerts.findMany({
-    where: eq(schema.alerts.workspaceId, workspaceId),
+    where: inArray(schema.alerts.workspaceId, workspaceIds),
     orderBy: (t, { desc }) => desc(t.createdAt),
   });
   const hits = await db.query.alertHits.findMany({
-    where: (t, { inArray }) => inArray(t.alertId, list.map((a) => a.id).length ? list.map((a) => a.id) : ["-"]),
+    where: (t, { inArray }) =>
+      inArray(
+        t.alertId,
+        list.map((a) => a.id).length ? list.map((a) => a.id) : ["-"],
+      ),
     orderBy: (t, { desc }) => desc(t.createdAt),
   });
   return NextResponse.json({ alerts: list, hits });
@@ -29,7 +33,13 @@ export async function POST(req: Request) {
   const body = CreateAlert.parse(await req.json());
   const [alert] = await db
     .insert(schema.alerts)
-    .values({ workspaceId, name: body.name, query: body.query, keywords: body.keywords, threshold: body.threshold })
+    .values({
+      workspaceId,
+      name: body.name,
+      query: body.query,
+      keywords: body.keywords,
+      threshold: body.threshold,
+    })
     .returning();
   return NextResponse.json({ alert });
 }

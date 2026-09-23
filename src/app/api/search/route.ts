@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { inArray } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { getViewingWorkspaceId } from "@/server/session";
+import { getViewingWorkspaceIds } from "@/server/session";
 import { retrieve } from "@/server/ai/retrieval";
 import { AiConfigError } from "@/server/ai/client";
 import { rateLimit, clientKey } from "@/server/rate-limit";
@@ -37,16 +37,24 @@ export type SearchResult = {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const parsed = Query.safeParse({ q: url.searchParams.get("q") || "" });
-  if (!parsed.success) return NextResponse.json({ error: "invalid_query" }, { status: 400 });
+  if (!parsed.success)
+    return NextResponse.json({ error: "invalid_query" }, { status: 400 });
 
-  const workspaceId = await getViewingWorkspaceId();
-  const { allowed } = rateLimit(`search:${clientKey(req, workspaceId)}`, 30, 60 * 1000);
-  if (!allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  const workspaceIds = await getViewingWorkspaceIds();
+  const { allowed } = rateLimit(
+    `search:${clientKey(req, workspaceIds.join(","))}`,
+    30,
+    60 * 1000,
+  );
+  if (!allowed)
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
 
   try {
     const chunks = await Promise.race([
-      retrieve(parsed.data.q, { workspaceId }, 24),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), TIMEOUT_MS)),
+      retrieve(parsed.data.q, { workspaceId: workspaceIds }, 24),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), TIMEOUT_MS),
+      ),
     ]);
 
     const meetingIds = [...new Set(chunks.map((c) => c.meetingId))];
@@ -82,7 +90,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ results });
   } catch (err) {
-    if (err instanceof AiConfigError) return NextResponse.json({ error: "ai_not_configured" }, { status: 503 });
+    if (err instanceof AiConfigError)
+      return NextResponse.json({ error: "ai_not_configured" }, { status: 503 });
     console.error("search error", err);
     return NextResponse.json({ error: "search_failed" }, { status: 500 });
   }

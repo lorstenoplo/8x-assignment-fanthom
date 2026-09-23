@@ -2,7 +2,11 @@ import "server-only";
 import { cookies } from "next/headers";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
-import { WORKSPACE_COOKIE, signWorkspaceId, verifyWorkspaceToken } from "@/server/cookie-sign";
+import {
+  WORKSPACE_COOKIE,
+  signWorkspaceId,
+  verifyWorkspaceToken,
+} from "@/server/cookie-sign";
 
 /**
  * Reads the workspace cookie (signed by `proxy.ts` for every new visitor, or
@@ -43,7 +47,9 @@ export async function setWorkspaceCookie(id: string) {
 export async function ensureWorkspace(): Promise<string> {
   const existing = await getWorkspaceId();
   if (existing) {
-    const row = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, existing) });
+    const row = await db.query.workspaces.findFirst({
+      where: eq(schema.workspaces.id, existing),
+    });
     if (row) return row.id;
     const [created] = await db
       .insert(schema.workspaces)
@@ -51,7 +57,10 @@ export async function ensureWorkspace(): Promise<string> {
       .returning({ id: schema.workspaces.id });
     return created.id;
   }
-  const [created] = await db.insert(schema.workspaces).values({}).returning({ id: schema.workspaces.id });
+  const [created] = await db
+    .insert(schema.workspaces)
+    .values({})
+    .returning({ id: schema.workspaces.id });
   await setWorkspaceCookie(created.id);
   return created.id;
 }
@@ -62,11 +71,23 @@ export async function ensureWorkspace(): Promise<string> {
  * Never creates a row — read-only Server Components can call this safely.
  */
 export async function getViewingWorkspaceId(): Promise<string> {
+  return (await getViewingWorkspaceIds())[0];
+}
+
+/** Read paths always include the seeded demo alongside the visitor's workspace. */
+export async function getViewingWorkspaceIds(): Promise<string[]> {
   const own = await getWorkspaceId();
-  if (own) return own;
-  const demo = process.env.DEMO_WORKSPACE_ID;
-  if (demo) return demo;
-  const row = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.isDemo, true) });
-  if (row) return row.id;
-  throw new Error("No workspace cookie and no demo workspace configured/seeded.");
+  const demo =
+    process.env.DEMO_WORKSPACE_ID ??
+    (
+      await db.query.workspaces.findFirst({
+        where: eq(schema.workspaces.isDemo, true),
+      })
+    )?.id;
+  const ids = [demo, own].filter((id): id is string => Boolean(id));
+  if (ids.length === 0)
+    throw new Error(
+      "No workspace cookie and no demo workspace configured/seeded.",
+    );
+  return [...new Set(ids)];
 }

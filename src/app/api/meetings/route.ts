@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
-import { ensureWorkspace, getViewingWorkspaceId } from "@/server/session";
-import { desc, eq } from "drizzle-orm";
+import { ensureWorkspace, getViewingWorkspaceIds } from "@/server/session";
+import { desc, inArray, eq } from "drizzle-orm";
 import { rateLimit, clientKey } from "@/server/rate-limit";
 
 const CreateBody = z.object({
@@ -11,9 +11,9 @@ const CreateBody = z.object({
 
 /** Lightweight list for pickers (e.g. Ask's "attach a meeting") — id/title/date only. */
 export async function GET() {
-  const workspaceId = await getViewingWorkspaceId();
+  const workspaceIds = await getViewingWorkspaceIds();
   const meetings = await db.query.meetings.findMany({
-    where: eq(schema.meetings.workspaceId, workspaceId),
+    where: inArray(schema.meetings.workspaceId, workspaceIds),
     orderBy: [desc(schema.meetings.startedAt)],
     columns: { id: true, title: true, startedAt: true, status: true },
   });
@@ -24,12 +24,19 @@ export async function GET() {
 export async function POST(req: Request) {
   const workspaceId = await ensureWorkspace();
 
-  const { allowed } = rateLimit(`create-meeting:${clientKey(req, workspaceId)}`, 10, 10 * 60 * 1000);
-  if (!allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  const { allowed } = rateLimit(
+    `create-meeting:${clientKey(req, workspaceId)}`,
+    10,
+    10 * 60 * 1000,
+  );
+  if (!allowed)
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
 
   const body = CreateBody.parse(await req.json().catch(() => ({})));
 
-  const workspace = await db.query.workspaces.findFirst({ where: eq(schema.workspaces.id, workspaceId) });
+  const workspace = await db.query.workspaces.findFirst({
+    where: eq(schema.workspaces.id, workspaceId),
+  });
 
   const [meeting] = await db
     .insert(schema.meetings)

@@ -12,22 +12,50 @@ const MAX_UPLOAD_BYTES = 500 * 1024 * 1024; // ~500MB, generous for an hour-long
  * still saves — recording is treated as best-effort, and the UI shows
  * "no recording" rather than failing the whole call.
  */
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   const { id } = await params;
   const guard = await requireOwnMeeting(id);
   if ("error" in guard) return guard.error;
 
-  const declaredLength = Number(req.headers.get("content-length") || 0);
-  if (declaredLength > MAX_UPLOAD_BYTES) {
-    return NextResponse.json({ error: "too_large" }, { status: 413 });
-  }
-
   if (!isStorageConfigured()) {
     await db
       .update(schema.meetings)
-      .set({ recordingNote: "Recording storage is not configured (BLOB_READ_WRITE_TOKEN missing)." })
+      .set({
+        recordingNote:
+          "Recording storage is not configured (BLOB_READ_WRITE_TOKEN missing).",
+      })
       .where(eq(schema.meetings.id, id));
-    return NextResponse.json({ stored: false, reason: "storage_not_configured" });
+    return NextResponse.json({
+      stored: false,
+      reason: "storage_not_configured",
+    });
+  }
+
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    const body = (await req.json()) as { url?: string; contentType?: string };
+    if (!body.url || !body.url.startsWith("https://")) {
+      return NextResponse.json(
+        { error: "invalid_recording_url" },
+        { status: 400 },
+      );
+    }
+    await db
+      .update(schema.meetings)
+      .set({
+        recordingUrl: body.url,
+        recordingMime: body.contentType || "video/webm",
+        recordingNote: null,
+      })
+      .where(eq(schema.meetings.id, id));
+    return NextResponse.json({ stored: true, url: body.url });
+  }
+
+  const declaredLength = Number(req.headers.get("content-length") || 0);
+  if (declaredLength > MAX_UPLOAD_BYTES) {
+    return NextResponse.json({ error: "too_large" }, { status: 413 });
   }
 
   const contentType = req.headers.get("content-type") || "video/webm";
@@ -46,12 +74,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .update(schema.meetings)
       .set({ recordingNote: "Recording upload failed after the call ended." })
       .where(eq(schema.meetings.id, id));
-    return NextResponse.json({ stored: false, reason: "upload_failed" }, { status: 502 });
+    return NextResponse.json(
+      { stored: false, reason: "upload_failed" },
+      { status: 502 },
+    );
   }
 
   await db
     .update(schema.meetings)
-    .set({ recordingUrl: result.url, recordingMime: contentType, recordingNote: null })
+    .set({
+      recordingUrl: result.url,
+      recordingMime: contentType,
+      recordingNote: null,
+    })
     .where(eq(schema.meetings.id, id));
   return NextResponse.json({ stored: true, url: result.url });
 }
