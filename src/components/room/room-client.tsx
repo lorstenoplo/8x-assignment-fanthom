@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Mic, MicOff, PhoneOff, Bookmark, ShieldAlert, UserPlus, Loader2, Circle } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  PhoneOff,
+  Bookmark,
+  ShieldAlert,
+  UserPlus,
+  Loader2,
+  Circle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Logomark } from "@/components/logomark";
@@ -20,7 +29,11 @@ import type { RoomParticipant, RoomPrefs, TranscriptLine } from "./types";
 /** A few attempts with backoff for end-of-call requests, where the recording
  * and transcript already exist locally and a single transient network blip
  * shouldn't be allowed to strand them. */
-async function fetchWithRetry(url: string, init: RequestInit, attempts = 4): Promise<Response> {
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  attempts = 4,
+): Promise<Response> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -36,7 +49,11 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 4): Pro
 }
 
 const AGENT_NAME = "Priya";
-const ACK_PHRASES = ["Let me check that for you.", "One sec, looking through past meetings.", "Give me a moment to pull that up."];
+const ACK_PHRASES = [
+  "Let me check that for you.",
+  "One sec, looking through past meetings.",
+  "Give me a moment to pull that up.",
+];
 const GUEST_PRESETS = [
   { name: "Alex Reyes (client)", email: "alex@acme-client.com" },
   { name: "Jordan Lee (prospect)", email: "jordan@outsidecorp.io" },
@@ -48,6 +65,8 @@ const PAUSE_MS = 900;
 const QUESTION_SILENCE_MS = 1300;
 /** After just "Hey Aura" with nothing yet, how long to keep listening for the question to start. */
 const QUESTION_START_WAIT_MS = 6000;
+/** The guest-safe answer path may include retrieval plus two model checks. */
+const IN_CALL_ASK_TIMEOUT_MS = 60_000;
 /**
  * Input transcription arrives a little after the words were actually spoken,
  * so your lines are shifted back by roughly that much to line up with the
@@ -64,8 +83,14 @@ const INPUT_TRANSCRIPTION_LAG_MS = 600;
 function isJunkTranscript(text: string): boolean {
   const trimmed = text.trim();
   if (!/\w/.test(trimmed)) return true;
-  const lettersOnly = trimmed.toLowerCase().replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
-  return /^(no speech( detected)?|silence|inaudible|no audio)( ?(pause|detected))?$/.test(lettersOnly);
+  const lettersOnly = trimmed
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(no speech( detected)?|silence|inaudible|no audio)( ?(pause|detected))?$/.test(
+    lettersOnly,
+  );
 }
 
 /**
@@ -76,9 +101,28 @@ function isJunkTranscript(text: string): boolean {
  * Returns the index right after the match (where the question starts).
  */
 function matchWakePhrase(text: string, notetakerName: string): number | null {
-  const names = Array.from(new Set([notetakerName, "aura", "aur", "ora", "orah", "hora", "or", "aurang", "aurum"].map((n) => n.toLowerCase())));
-  const namePattern = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const re = new RegExp(`\\b(hey|hi|hello|hay|ok|okay|que|qué|ke|k)[,.!]?\\s+(${namePattern})\\b[,.!?]?`, "i");
+  const names = Array.from(
+    new Set(
+      [
+        notetakerName,
+        "aura",
+        "aur",
+        "ora",
+        "orah",
+        "hora",
+        "or",
+        "aurang",
+        "aurum",
+      ].map((n) => n.toLowerCase()),
+    ),
+  );
+  const namePattern = names
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const re = new RegExp(
+    `\\b(hey|hi|hello|hay|ok|okay|que|qué|ke|k)[,.!]?\\s+(${namePattern})\\b[,.!?]?`,
+    "i",
+  );
   const m = text.match(re);
   return m && m.index != null ? m.index + m[0].length : null;
 }
@@ -151,14 +195,20 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
   // distinct diarized voice gets "Speaker 2", "Speaker 3".
   const speakerNamesRef = useRef<Map<string, string>>(new Map());
 
-  const relMs = useCallback(() => Math.max(0, Date.now() - callStartRef.current), []);
+  const relMs = useCallback(
+    () => Math.max(0, Date.now() - callStartRef.current),
+    [],
+  );
 
   const displayNameFor = useCallback(
     (label: string | undefined) => {
       const key = label ?? "default";
       const existing = speakerNamesRef.current.get(key);
       if (existing) return existing;
-      const name = speakerNamesRef.current.size === 0 ? prefs.ownerName : `Speaker ${speakerNamesRef.current.size + 1}`;
+      const name =
+        speakerNamesRef.current.size === 0
+          ? prefs.ownerName
+          : `Speaker ${speakerNamesRef.current.size + 1}`;
       speakerNamesRef.current.set(key, name);
       return name;
     },
@@ -167,34 +217,70 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
 
   // Retries a few times before giving up, and only then says so. A single
   // dropped POST used to lose that line forever with nothing shown.
-  const persistSegment = useCallback(async (mid: string, speaker: string, text: string, startMs: number, endMs: number) => {
-    if (!text.trim()) return;
-    const body = JSON.stringify({ speaker, startMs: Math.round(startMs), endMs: Math.round(Math.max(startMs, endMs)), text, isFinal: true });
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try {
-        const res = await fetch(`/api/meetings/${mid}/segments`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
-        if (res.ok) return;
-        console.error(`persistSegment attempt ${attempt} failed`, res.status, await res.text().catch(() => ""));
-      } catch (err) {
-        console.error(`persistSegment attempt ${attempt} threw`, err);
+  const persistSegment = useCallback(
+    async (
+      mid: string,
+      speaker: string,
+      text: string,
+      startMs: number,
+      endMs: number,
+    ) => {
+      if (!text.trim()) return;
+      const body = JSON.stringify({
+        speaker,
+        startMs: Math.round(startMs),
+        endMs: Math.round(Math.max(startMs, endMs)),
+        text,
+        isFinal: true,
+      });
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const res = await fetch(`/api/meetings/${mid}/segments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+          });
+          if (res.ok) return;
+          console.error(
+            `persistSegment attempt ${attempt} failed`,
+            res.status,
+            await res.text().catch(() => ""),
+          );
+        } catch (err) {
+          console.error(`persistSegment attempt ${attempt} threw`, err);
+        }
+        await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
       }
-      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
-    }
-    toast.error("Lost a line of transcript — the connection dropped and it couldn't be saved.");
-  }, []);
+      toast.error(
+        "Lost a line of transcript — the connection dropped and it couldn't be saved.",
+      );
+    },
+    [],
+  );
 
   /** Adds finished lines to the live panel and saves them, each with its own start time. */
   const commitLines = useCallback(
     (speaker: string, items: { text: string; startMs: number }[]) => {
-      const clean = items.filter((i) => i.text.trim() && !isJunkTranscript(i.text));
+      const clean = items.filter(
+        (i) => i.text.trim() && !isJunkTranscript(i.text),
+      );
       if (clean.length === 0) return;
       const endMs = relMs();
       setLines((prev) => [
         ...prev,
-        ...clean.map((i) => ({ id: crypto.randomUUID(), speaker, text: i.text.trim(), startMs: i.startMs, endMs, final: true })),
+        ...clean.map((i) => ({
+          id: crypto.randomUUID(),
+          speaker,
+          text: i.text.trim(),
+          startMs: i.startMs,
+          endMs,
+          final: true,
+        })),
       ]);
       const mid = meetingIdRef.current;
-      if (mid) for (const i of clean) void persistSegment(mid, speaker, i.text.trim(), i.startMs, endMs);
+      if (mid)
+        for (const i of clean)
+          void persistSegment(mid, speaker, i.text.trim(), i.startMs, endMs);
     },
     [persistSegment, relMs],
   );
@@ -228,13 +314,27 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
           if (!voiceRef.current) throw new Error("voice_unavailable");
           await voiceRef.current.speak(text);
         } catch (err) {
-          console.error("notetaker voice unavailable, using browser speech", err);
+          console.error(
+            "notetaker voice unavailable, using browser speech",
+            err,
+          );
           await speakWithBrowser(text);
         }
       };
 
-      const ackText = ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)];
-      setLines((prev) => [...prev, { id: crypto.randomUUID(), speaker: prefs.notetakerName, text: ackText, startMs: relMs(), endMs: relMs(), final: true }]);
+      const ackText =
+        ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)];
+      setLines((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          speaker: prefs.notetakerName,
+          text: ackText,
+          startMs: relMs(),
+          endMs: relMs(),
+          final: true,
+        },
+      ]);
       const ackDone = say(ackText);
 
       let answer: string | null = null;
@@ -243,28 +343,62 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question, atMs: relMs() }),
-          signal: AbortSignal.timeout(20_000),
+          signal: AbortSignal.timeout(IN_CALL_ASK_TIMEOUT_MS),
         });
-        if (!res.ok) throw new Error(`ask_failed_${res.status}`);
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(
+            `ask_failed_${res.status}_${body.error ?? "unknown"}`,
+          );
+        }
         const data = (await res.json()) as { answer: string; blocked: boolean };
         await ackDone;
 
         const startMs = relMs();
-        setLines((prev) => [...prev, { id: crypto.randomUUID(), speaker: prefs.notetakerName, text: data.answer, startMs, endMs: startMs, final: true }]);
-        void persistSegment(mid, prefs.notetakerName, data.answer, startMs, startMs);
-        if (data.blocked) setNotetakerNote("Declined to answer — a guest is on this call.");
+        setLines((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            speaker: prefs.notetakerName,
+            text: data.answer,
+            startMs,
+            endMs: startMs,
+            final: true,
+          },
+        ]);
+        void persistSegment(
+          mid,
+          prefs.notetakerName,
+          data.answer,
+          startMs,
+          startMs,
+        );
+        if (data.blocked)
+          setNotetakerNote("Declined to answer — a guest is on this call.");
         if (!data.blocked) answer = data.answer;
 
         setAuraState("speaking");
         await say(data.answer);
       } catch (err) {
         console.error("notetaker ask failed", err);
-        toast.error("The notetaker couldn't answer that — try asking again.");
+        const timedOut =
+          err instanceof DOMException && err.name === "TimeoutError";
+        toast.error(
+          timedOut
+            ? "That answer took too long to prepare — try asking again."
+            : "The notetaker couldn't answer that — try asking again.",
+        );
       } finally {
         auraBusyRef.current = false;
         setAuraState("idle");
         agentRef.current?.setSuppressed(false);
-        if (answer) agentRef.current?.notifyOfNotetakerAnswer(prefs.notetakerName, answer);
+        if (answer)
+          agentRef.current?.notifyOfNotetakerAnswer(
+            prefs.notetakerName,
+            answer,
+          );
       }
     },
     [persistSegment, prefs.notetakerName, relMs],
@@ -299,7 +433,9 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       // When this fragment is actually heard in the recording: your words a
       // beat before their transcription arrives, Priya's once the audio
       // already queued ahead of them has played.
-      const heardAt = isYou ? Math.max(0, relMs() - INPUT_TRANSCRIPTION_LAG_MS) : relMs() + (e.leadMs ?? 0);
+      const heardAt = isYou
+        ? Math.max(0, relMs() - INPUT_TRANSCRIPTION_LAG_MS)
+        : relMs() + (e.leadMs ?? 0);
 
       const entry: TurnBuffer = buf.get(bufKey) ?? {
         text: "",
@@ -315,7 +451,11 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       //    Punctuation alone isn't enough: live transcription of your side
       //    often has none, so everything you said would club together.
       const open = entry.text.slice(entry.displayedLen);
-      if (buf.has(bufKey) && nowWall - entry.lastDeltaAt > PAUSE_MS && open.trim()) {
+      if (
+        buf.has(bufKey) &&
+        nowWall - entry.lastDeltaAt > PAUSE_MS &&
+        open.trim()
+      ) {
         committed.push({ text: open, startMs: entry.segStartMs ?? heardAt });
         entry.displayedLen = entry.text.length;
         entry.segStartMs = null;
@@ -323,19 +463,26 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       entry.lastDeltaAt = nowWall;
 
       // 2. Append. Fragments arrive with no guaranteed spacing between them.
-      const needsSpace = entry.text.length > 0 && !/\s$/.test(entry.text) && !/^[\s.,!?;:]/.test(e.text);
+      const needsSpace =
+        entry.text.length > 0 &&
+        !/\s$/.test(entry.text) &&
+        !/^[\s.,!?;:]/.test(e.text);
       entry.text += (needsSpace ? " " : "") + e.text;
-      if (entry.segStartMs === null && e.text.trim()) entry.segStartMs = heardAt;
+      if (entry.segStartMs === null && e.text.trim())
+        entry.segStartMs = heardAt;
 
       // 3. Split finished sentences off the open segment as they complete.
       const pending = entry.text.slice(entry.displayedLen);
       const matches = [...pending.matchAll(/[^.!?]+[.!?]+(?:\s|$)/g)];
       if (matches.length > 0) {
         const segStart = entry.segStartMs ?? heardAt;
-        for (const m of matches) committed.push({ text: m[0], startMs: segStart });
+        for (const m of matches)
+          committed.push({ text: m[0], startMs: segStart });
         const last = matches[matches.length - 1];
         entry.displayedLen += last.index! + last[0].length;
-        entry.segStartMs = entry.text.slice(entry.displayedLen).trim() ? heardAt : null;
+        entry.segStartMs = entry.text.slice(entry.displayedLen).trim()
+          ? heardAt
+          : null;
       }
 
       // 4. Wake phrase. The moment "hey Aura" is heard, Priya's output is
@@ -343,7 +490,10 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       //    even spoken. The question is asked once you stop talking.
       if (isYou) {
         if (entry.wakeQuestionStart === null && !auraBusyRef.current) {
-          const idx = matchWakePhrase(entry.text.slice(entry.wakeScanFrom), prefs.notetakerName);
+          const idx = matchWakePhrase(
+            entry.text.slice(entry.wakeScanFrom),
+            prefs.notetakerName,
+          );
           if (idx !== null) {
             entry.wakeQuestionStart = entry.wakeScanFrom + idx;
             agentRef.current?.setSuppressed(true);
@@ -352,10 +502,14 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
         }
         if (entry.wakeQuestionStart !== null) {
           if (wakeTimerRef.current) clearTimeout(wakeTimerRef.current);
-          const questionSoFar = entry.text.slice(entry.wakeQuestionStart).replace(/[^a-z0-9]/gi, "");
+          const questionSoFar = entry.text
+            .slice(entry.wakeQuestionStart)
+            .replace(/[^a-z0-9]/gi, "");
           wakeTimerRef.current = setTimeout(
             () => finishWakeQuestion(entry),
-            questionSoFar.length > 2 ? QUESTION_SILENCE_MS : QUESTION_START_WAIT_MS,
+            questionSoFar.length > 2
+              ? QUESTION_SILENCE_MS
+              : QUESTION_START_WAIT_MS,
           );
         }
       }
@@ -363,8 +517,10 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       // 5. End of turn: flush what's left.
       if (e.final) {
         const tail = entry.text.slice(entry.displayedLen);
-        if (tail.trim()) committed.push({ text: tail, startMs: entry.segStartMs ?? heardAt });
-        if (isYou && entry.wakeQuestionStart !== null) finishWakeQuestion(entry);
+        if (tail.trim())
+          committed.push({ text: tail, startMs: entry.segStartMs ?? heardAt });
+        if (isYou && entry.wakeQuestionStart !== null)
+          finishWakeQuestion(entry);
         buf.delete(bufKey);
       } else {
         buf.set(bufKey, entry);
@@ -373,14 +529,32 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       commitLines(speakerName, committed);
 
       const liveId = `${bufKey}-live`;
-      const liveText = e.final ? "" : entry.text.slice(entry.displayedLen).trim();
+      const liveText = e.final
+        ? ""
+        : entry.text.slice(entry.displayedLen).trim();
       setLines((prev) => {
         const without = prev.filter((l) => l.id !== liveId);
         if (!liveText || isJunkTranscript(liveText)) return without;
-        return [...without, { id: liveId, speaker: speakerName, text: liveText, startMs: entry.segStartMs ?? heardAt, endMs: relMs(), final: false }];
+        return [
+          ...without,
+          {
+            id: liveId,
+            speaker: speakerName,
+            text: liveText,
+            startMs: entry.segStartMs ?? heardAt,
+            endMs: relMs(),
+            final: false,
+          },
+        ];
       });
     },
-    [commitLines, displayNameFor, finishWakeQuestion, prefs.notetakerName, relMs],
+    [
+      commitLines,
+      displayNameFor,
+      finishWakeQuestion,
+      prefs.notetakerName,
+      relMs,
+    ],
   );
 
   const {
@@ -416,7 +590,10 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
 
   useEffect(() => {
     if (stage !== "live") return;
-    const t = setInterval(() => setElapsedMs(Date.now() - callStartRef.current), 500);
+    const t = setInterval(
+      () => setElapsedMs(Date.now() - callStartRef.current),
+      500,
+    );
     return () => clearInterval(t);
   }, [stage]);
 
@@ -427,14 +604,24 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
     }
   }, [stage]);
 
-  const auraLabel = { idle: "Listening", listening: "Listening to you…", thinking: "Checking past meetings…", speaking: "Speaking…" }[auraState];
+  const auraLabel = {
+    idle: "Listening",
+    listening: "Listening to you…",
+    thinking: "Checking past meetings…",
+    speaking: "Speaking…",
+  }[auraState];
 
   // Keeps the recorded canvas in sync with what's on screen.
   useEffect(() => {
     compositorRef.current?.update({
       muted,
       agentSpeaking,
-      agentStatusLabel: agentStatus === "live" ? (agentSpeaking ? "Speaking…" : "Listening") : agentStatus,
+      agentStatusLabel:
+        agentStatus === "live"
+          ? agentSpeaking
+            ? "Speaking…"
+            : "Listening"
+          : agentStatus,
       notetakerActive: auraState !== "idle",
       notetakerLabel: auraLabel,
     });
@@ -447,10 +634,14 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       const res = await fetch("/api/meetings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: `Test meeting — ${new Date().toLocaleString()}` }),
+        body: JSON.stringify({
+          title: `Test meeting — ${new Date().toLocaleString()}`,
+        }),
       });
       if (!res.ok) {
-        toast.error("Couldn't start the meeting — check the database is configured.");
+        toast.error(
+          "Couldn't start the meeting — check the database is configured.",
+        );
         return;
       }
       const { meeting } = (await res.json()) as { meeting: { id: string } };
@@ -460,7 +651,9 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       callStartRef.current = Date.now();
 
       const partsRes = await fetch(`/api/meetings/${meeting.id}/participants`);
-      const { participants: existing } = (await partsRes.json()) as { participants: RoomParticipant[] };
+      const { participants: existing } = (await partsRes.json()) as {
+        participants: RoomParticipant[];
+      };
       setParticipants(existing);
 
       // The notetaker's voice gets its own player, created up front so it
@@ -470,12 +663,16 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       notetakerPlayerRef.current = new PcmPlayer(notetakerCtx);
       voiceRef.current = new NotetakerVoice(notetakerPlayerRef.current);
       // Connected in the background now, so the first answer doesn't wait on it.
-      voiceRef.current.warmUp().catch((err) => console.error("notetaker voice warm-up failed", err));
+      voiceRef.current
+        .warmUp()
+        .catch((err) => console.error("notetaker voice warm-up failed", err));
 
       try {
         await startAgent();
       } catch {
-        toast.error("Live agent failed to connect — check GEMINI_API_KEY. The call continues without it.");
+        toast.error(
+          "Live agent failed to connect — check GEMINI_API_KEY. The call continues without it.",
+        );
       }
 
       // An offscreen <video> the compositor can draw from, independent of
@@ -508,21 +705,44 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       callStartRef.current = recorderRef.current.startedAt;
       setStage("live");
     },
-    [startAgent, getMicStream, getAgentAudioStream, prefs.ownerName, prefs.notetakerName],
+    [
+      startAgent,
+      getMicStream,
+      getAgentAudioStream,
+      prefs.ownerName,
+      prefs.notetakerName,
+    ],
   );
 
-  const handleAddGuest = useCallback(async (preset: (typeof GUEST_PRESETS)[number]) => {
-    const mid = meetingIdRef.current;
-    if (!mid) return;
-    const res = await fetch(`/api/meetings/${mid}/participants`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: preset.name, email: preset.email, role: "guest" }),
-    });
-    const { participant } = (await res.json()) as { participant: RoomParticipant };
-    setParticipants((prev) => [...prev, participant]);
-    toast.info(`${preset.name} joined — the notetaker will now guard internal info from them.`);
-  }, []);
+  const handleAddGuest = useCallback(
+    async (preset: (typeof GUEST_PRESETS)[number]) => {
+      const mid = meetingIdRef.current;
+      if (!mid) return;
+      if (
+        participants.some((participant) => participant.email === preset.email)
+      ) {
+        toast.info(`${preset.name} is already in this meeting.`);
+        return;
+      }
+      const res = await fetch(`/api/meetings/${mid}/participants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: preset.name,
+          email: preset.email,
+          role: "guest",
+        }),
+      });
+      const { participant } = (await res.json()) as {
+        participant: RoomParticipant;
+      };
+      setParticipants((prev) => [...prev, participant]);
+      toast.info(
+        `${preset.name} joined — the notetaker will now guard internal info from them.`,
+      );
+    },
+    [participants],
+  );
 
   const handleHighlight = useCallback(async () => {
     const mid = meetingIdRef.current;
@@ -531,7 +751,11 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
     await fetch(`/api/meetings/${mid}/highlights`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startMs: Math.max(0, at - 5000), endMs: at, createdDuringCall: true }),
+      body: JSON.stringify({
+        startMs: Math.max(0, at - 5000),
+        endMs: at,
+        createdDuringCall: true,
+      }),
     });
     toast.success("Highlighted this moment");
   }, [relMs]);
@@ -546,8 +770,13 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
     // Whatever is still open in a turn buffer is real transcript content.
     for (const [bufKey, entry] of turnBufferRef.current) {
       const remaining = entry.text.slice(entry.displayedLen);
-      const speakerName = bufKey === "agent" ? AGENT_NAME : displayNameFor(bufKey.replace(/^you:/, ""));
-      commitLines(speakerName, [{ text: remaining, startMs: entry.segStartMs ?? relMs() }]);
+      const speakerName =
+        bufKey === "agent"
+          ? AGENT_NAME
+          : displayNameFor(bufKey.replace(/^you:/, ""));
+      commitLines(speakerName, [
+        { text: remaining, startMs: entry.segStartMs ?? relMs() },
+      ]);
     }
     turnBufferRef.current.clear();
 
@@ -560,7 +789,9 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
     void notetakerCtxRef.current?.close();
 
     if (!recording) {
-      toast.warning("No recording was captured for this call — the transcript and summary are unaffected.");
+      toast.warning(
+        "No recording was captured for this call — the transcript and summary are unaffected.",
+      );
     } else {
       try {
         const res = await fetchWithRetry(`/api/meetings/${mid}/recording`, {
@@ -577,7 +808,9 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
           );
         }
       } catch {
-        toast.warning("Couldn't upload the recording — the call was still transcribed.");
+        toast.warning(
+          "Couldn't upload the recording — the call was still transcribed.",
+        );
       }
     }
 
@@ -588,11 +821,20 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
       const res = await fetchWithRetry(`/api/meetings/${mid}/end`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ durationSec: recording ? Math.max(1, Math.round(recording.durationMs / 1000)) : undefined }),
+        body: JSON.stringify({
+          durationSec: recording
+            ? Math.max(1, Math.round(recording.durationMs / 1000))
+            : undefined,
+        }),
       });
-      if (!res.ok) toast.error("Processing this meeting failed — you can still view the raw transcript.");
+      if (!res.ok)
+        toast.error(
+          "Processing this meeting failed — you can still view the raw transcript.",
+        );
     } catch {
-      toast.error("Couldn't reach the server to finish processing — you can still view the raw transcript.");
+      toast.error(
+        "Couldn't reach the server to finish processing — you can still view the raw transcript.",
+      );
     }
     router.push(`/m/${mid}`);
   }, [router, stopAgent, commitLines, displayNameFor, relMs]);
@@ -601,7 +843,9 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
     setMuted((m) => {
       const next = !m;
       setAgentMuted(next);
-      localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !next));
+      localStreamRef.current
+        ?.getAudioTracks()
+        .forEach((t) => (t.enabled = !next));
       return next;
     });
   }, [setAgentMuted]);
@@ -609,10 +853,26 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
   if (stage === "lobby") return <RoomLobby prefs={prefs} onJoin={handleJoin} />;
 
   const auraStyles = {
-    idle: { border: "border-dashed border-primary/40", bg: "bg-primary-fixed/30", dot: "text-[#10B981]" },
-    listening: { border: "border-solid border-[#D9A400]", bg: "bg-[#FFF8E7]", dot: "text-[#D9A400] animate-pulse" },
-    thinking: { border: "border-solid border-primary", bg: "bg-primary-fixed/40", dot: "text-primary animate-pulse" },
-    speaking: { border: "border-solid border-primary", bg: "bg-primary-fixed/60", dot: "text-primary animate-pulse" },
+    idle: {
+      border: "border-dashed border-primary/40",
+      bg: "bg-primary-fixed/30",
+      dot: "text-[#10B981]",
+    },
+    listening: {
+      border: "border-solid border-[#D9A400]",
+      bg: "bg-[#FFF8E7]",
+      dot: "text-[#D9A400] animate-pulse",
+    },
+    thinking: {
+      border: "border-solid border-primary",
+      bg: "bg-primary-fixed/40",
+      dot: "text-primary animate-pulse",
+    },
+    speaking: {
+      border: "border-solid border-primary",
+      bg: "bg-primary-fixed/60",
+      dot: "text-primary animate-pulse",
+    },
   }[auraState];
 
   return (
@@ -621,9 +881,13 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
         <div className="flex items-center justify-between gap-3 bg-accent-soft px-4 py-2 text-xs text-accent">
           <span className="flex items-center gap-2">
             <Circle className="h-2 w-2 animate-record fill-current" />
-            This meeting is being recorded and transcribed. Everyone on this call has been notified.
+            This meeting is being recorded and transcribed. Everyone on this
+            call has been notified.
           </span>
-          <button onClick={() => setShowConsent(false)} className="font-medium hover:underline">
+          <button
+            onClick={() => setShowConsent(false)}
+            className="font-medium hover:underline"
+          >
             Dismiss
           </button>
         </div>
@@ -633,7 +897,13 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
         <div className="flex flex-1 flex-col">
           <div className="grid flex-1 grid-cols-1 gap-5 lg:grid-cols-[1fr_280px]">
             <div className="relative min-h-[320px] overflow-hidden rounded-3xl bg-black shadow-lg lg:min-h-0">
-              <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                className="h-full w-full object-cover"
+              />
               <span className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1 text-label-sm text-white backdrop-blur-sm">
                 {prefs.ownerName} {muted && "(muted)"}
               </span>
@@ -651,7 +921,12 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
                 <span className="text-sm font-medium">{AGENT_NAME}</span>
                 <span className="text-xs text-muted-foreground">
                   {agentStatus === "connecting" && "Connecting…"}
-                  {agentStatus === "live" && (auraState !== "idle" ? "Waiting" : agentSpeaking ? "Speaking…" : "Listening")}
+                  {agentStatus === "live" &&
+                    (auraState !== "idle"
+                      ? "Waiting"
+                      : agentSpeaking
+                        ? "Speaking…"
+                        : "Listening")}
                   {agentStatus === "reconnecting" && "Reconnecting…"}
                   {agentStatus === "error" && "Unavailable"}
                 </span>
@@ -667,13 +942,22 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
                 <div className="brand-gradient flex h-11 w-11 items-center justify-center rounded-full text-white shadow-sm">
                   <Logomark className="h-5 w-5" />
                 </div>
-                <span className="text-sm font-medium">{prefs.notetakerName}</span>
+                <span className="text-sm font-medium">
+                  {prefs.notetakerName}
+                </span>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Circle className={cn("h-2 w-2 shrink-0 fill-current", auraStyles.dot)} />
+                  <Circle
+                    className={cn(
+                      "h-2 w-2 shrink-0 fill-current",
+                      auraStyles.dot,
+                    )}
+                  />
                   {auraLabel}
                 </span>
                 {auraState === "idle" && (
-                  <span className="text-[11px] text-muted-foreground/80">Say &ldquo;Hey {prefs.notetakerName}&rdquo; to ask</span>
+                  <span className="text-[11px] text-muted-foreground/80">
+                    Say &ldquo;Hey {prefs.notetakerName}&rdquo; to ask
+                  </span>
                 )}
               </div>
 
@@ -685,9 +969,12 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
                     className="relative flex min-h-[150px] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-transparent bg-card p-4 text-center shadow-sm"
                   >
                     <Avatar name={participant.name} size={56} />
-                    <span className="text-sm font-medium">{participant.name}</span>
+                    <span className="text-sm font-medium">
+                      {participant.name}
+                    </span>
                     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Circle className="h-2 w-2 shrink-0 fill-[#10B981] text-[#10B981]" /> Listening
+                      <Circle className="h-2 w-2 shrink-0 fill-[#10B981] text-[#10B981]" />{" "}
+                      Listening
                     </span>
                   </div>
                 ))}
@@ -697,29 +984,61 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-card p-3.5 shadow-sm">
             <div className="flex items-center gap-2 text-sm">
               <Circle className="h-2.5 w-2.5 animate-record fill-[var(--destructive)] text-[var(--destructive)]" />
-              <span className="font-mono tabular-nums">{formatTimecode(elapsedMs / 1000)}</span>
+              <span className="font-mono tabular-nums">
+                {formatTimecode(elapsedMs / 1000)}
+              </span>
               <div className="ml-2 flex -space-x-2">
                 {participants.map((p) => (
-                  <Avatar key={p.id} name={p.name} size={24} className="ring-2 ring-card" />
+                  <Avatar
+                    key={p.id}
+                    name={p.name}
+                    size={24}
+                    className="ring-2 ring-card"
+                  />
                 ))}
               </div>
               {participants.some((p) => p.isExternal) && (
                 <span className="ml-1 flex items-center gap-1 text-xs text-[var(--warning)]">
-                  <ShieldAlert className="h-3.5 w-3.5" /> Guest present — recall guarded
+                  <ShieldAlert className="h-3.5 w-3.5" /> Guest present —
+                  internal answers guarded
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant={muted ? "destructive" : "secondary"} size="icon" onClick={toggleMute} title="Mute">
-                {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              <Button
+                variant={muted ? "destructive" : "secondary"}
+                size="icon"
+                onClick={toggleMute}
+                title="Mute"
+              >
+                {muted ? (
+                  <MicOff className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
               </Button>
               <Button variant="secondary" size="sm" onClick={handleHighlight}>
                 <Bookmark className="h-4 w-4" /> Highlight
               </Button>
-              <GuestMenu onAdd={handleAddGuest} />
-              <Button variant="destructive" size="sm" onClick={handleEnd} disabled={stage === "ending"}>
-                {stage === "ending" ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneOff className="h-4 w-4" />}
+              <GuestMenu
+                onAdd={handleAddGuest}
+                addedEmails={participants
+                  .filter((participant) => participant.role === "guest")
+                  .map((participant) => participant.email)
+                  .filter((email): email is string => Boolean(email))}
+              />
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleEnd}
+                disabled={stage === "ending"}
+              >
+                {stage === "ending" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <PhoneOff className="h-4 w-4" />
+                )}
                 End
               </Button>
             </div>
@@ -734,15 +1053,28 @@ export function RoomClient({ prefs }: { prefs: RoomPrefs }) {
         </div>
 
         <div className="h-80 shrink-0 overflow-hidden rounded-3xl border border-border bg-card shadow-sm md:h-auto md:w-80">
-          <TranscriptPanel lines={lines} notetakerName={prefs.notetakerName} ownerName={prefs.ownerName} />
+          <TranscriptPanel
+            lines={lines}
+            notetakerName={prefs.notetakerName}
+            ownerName={prefs.ownerName}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function GuestMenu({ onAdd }: { onAdd: (p: (typeof GUEST_PRESETS)[number]) => void }) {
+function GuestMenu({
+  onAdd,
+  addedEmails,
+}: {
+  onAdd: (p: (typeof GUEST_PRESETS)[number]) => void;
+  addedEmails: string[];
+}) {
   const [open, setOpen] = useState(false);
+  const availableGuests = GUEST_PRESETS.filter(
+    (guest) => !addedEmails.includes(guest.email),
+  );
   return (
     <div className="relative">
       <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
@@ -750,19 +1082,27 @@ function GuestMenu({ onAdd }: { onAdd: (p: (typeof GUEST_PRESETS)[number]) => vo
       </Button>
       {open && (
         <div className="absolute bottom-full right-0 mb-2 w-56 rounded-[var(--radius-md)] border border-border bg-card p-1 shadow-lg">
-          {GUEST_PRESETS.map((g) => (
-            <button
-              key={g.email}
-              onClick={() => {
-                onAdd(g);
-                setOpen(false);
-              }}
-              className="block w-full rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-xs hover:bg-muted"
-            >
-              {g.name}
-            </button>
-          ))}
-          <p className="px-2.5 pt-1 pb-0.5 text-[10px] text-muted-foreground">Simulates someone external joining, to test the guardrail.</p>
+          {availableGuests.length > 0 ? (
+            availableGuests.map((g) => (
+              <button
+                key={g.email}
+                onClick={() => {
+                  onAdd(g);
+                  setOpen(false);
+                }}
+                className="block w-full rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-xs hover:bg-muted"
+              >
+                {g.name}
+              </button>
+            ))
+          ) : (
+            <p className="px-2.5 py-1.5 text-xs text-muted-foreground">
+              All demo guests are already in the meeting.
+            </p>
+          )}
+          <p className="px-2.5 pt-1 pb-0.5 text-[10px] text-muted-foreground">
+            Simulates someone external joining, to test the guardrail.
+          </p>
         </div>
       )}
     </div>
