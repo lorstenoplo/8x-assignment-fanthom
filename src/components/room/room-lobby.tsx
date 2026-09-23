@@ -28,7 +28,6 @@ export function RoomLobby({
           return;
         }
         setStream(s);
-        if (videoRef.current) videoRef.current.srcObject = s;
       })
       .catch(() => setError("Camera/mic access was denied. You can still join audio-only once you allow it."));
     return () => {
@@ -36,10 +35,18 @@ export function RoomLobby({
     };
   }, []);
 
+  // The <video> element only exists once `stream` is set (conditional
+  // render below), so attaching srcObject inside the getUserMedia callback
+  // above was a no-op — the ref was still null at that point. Doing it here,
+  // keyed on `stream`, runs after the element has actually mounted.
+  useEffect(() => {
+    if (stream && videoRef.current) videoRef.current.srcObject = stream;
+  }, [stream]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="grid w-full max-w-3xl gap-6 md:grid-cols-2">
-        <Card className="overflow-hidden bg-black">
+      <div className="grid w-full max-w-3xl items-start gap-6 md:grid-cols-2">
+        <Card className="overflow-hidden !bg-black">
           <div className="relative aspect-video">
             {stream ? (
               <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
@@ -61,7 +68,7 @@ export function RoomLobby({
           </div>
 
           {error && (
-            <p className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[hsl(var(--destructive)/0.1)] p-2.5 text-xs text-[hsl(var(--destructive))]">
+            <p className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[color-mix(in srgb,var(--destructive) 10%,transparent)] p-2.5 text-xs text-[var(--destructive)]">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               {error}
             </p>
@@ -83,6 +90,7 @@ export function RoomLobby({
 
           <Button
             size="lg"
+            variant="solid"
             disabled={!stream || joining}
             onClick={() => {
               if (!stream) return;
